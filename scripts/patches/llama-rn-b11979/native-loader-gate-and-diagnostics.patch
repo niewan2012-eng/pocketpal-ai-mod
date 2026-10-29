@@ -1,0 +1,84 @@
+--- a/android/src/main/java/com/rnllama/RNLlama.java
++++ b/android/src/main/java/com/rnllama/RNLlama.java
+@@ -11,6 +11,7 @@
+ import java.io.FileReader;
+ import java.io.InputStream;
+ import java.io.IOException;
++import java.util.Arrays;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
+ 
+@@ -32,13 +33,18 @@
+   };
+   private static final Pattern QUALCOMM_HINT_PATTERN =
+     Pattern.compile("(adreno|qcom|qualcomm|snapdragon)", Pattern.CASE_INSENSITIVE);
++  // No trailing word boundary: retail SOC_MODEL strings carry suffixes
++  // ("SM8850P" on the Snapdragon 8 Elite Gen 5), and a bounded
++  // \bSM8850\b does not match inside SM8850P.
+   private static final Pattern KNOWN_HEXAGON_SOC_PATTERN =
+-    Pattern.compile("\\b(SM8450|SM8550|SM8635|SM8650|SM8750|SM8845|SM8850)\\b");
+-  private static final Pattern SNAPDRAGON_8_SERIES_SOC_PATTERN = Pattern.compile("\\bSM8\\d{3}\\b");
++    Pattern.compile("\\b(SM8450|SM8550|SM8635|SM8650|SM8750|SM8845|SM8850)");
++  private static final Pattern SNAPDRAGON_8_SERIES_SOC_PATTERN = Pattern.compile("\\bSM8\\d{3}");
+   private static final Pattern SNAPDRAGON_8_SERIES_NAME_PATTERN =
+     Pattern.compile("SNAPDRAGON\\s*8");
++  // Qualcomm board codenames; a new SoC family adds one here. "canoe" is
++  // the Snapdragon 8 Elite Gen 5 (SM8850P).
+   private static final Pattern HEXAGON_CODENAME_PATTERN =
+-    Pattern.compile("(taro|kalama|pineapple|sun|lanai)");
++    Pattern.compile("(taro|kalama|pineapple|sun|lanai|canoe)");
+ 
+   private final ReactApplicationContext reactContext;
+ 
+@@ -194,11 +200,26 @@
+     boolean hasAdreno = hasAdrenoGpuHint();
+     boolean hasHexagon = isHexagonSupported();
+ 
++    // DIAG: the four cheaper conditions of the hexagon_opencl variant's gate are
++    // invisible otherwise, and a false negative silently demotes the device to
++    // the plain CPU variants (no GPU, no NPU).
++    Log.d(TAG, "[diag] soc=" + Build.SOC_MODEL + " socMan=" + Build.SOC_MANUFACTURER
++        + " hw=" + Build.HARDWARE + " board=" + Build.BOARD + " model=" + Build.MODEL);
++    Log.d(TAG, "[diag] cpu features: fp16=" + hasFp16 + " dotprod=" + hasDotProd
++        + " i8mm=" + hasI8mm + " | adrenoHint=" + hasAdreno + " hexagonHint=" + hasHexagon
++        + " | abis=" + Arrays.toString(Build.SUPPORTED_64_BIT_ABIS));
++
+     try {
+       boolean jniLoaded = false;
+       String loadedLib = "";
+       if (isArm64V8a()) {
+-        if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
++        // GPU and NPU live in the same library: the _hexagon_opencl variant
++        // is the only one that carries either backend. Requiring hasHexagon
++        // here meant a false negative in SoC/codename matching also threw
++        // away OpenCL. Try it on CPU features + Adreno instead; a ROM that
++        // blocks libcdsprpc.so or libOpenCL.so makes tryLoadLibrary()
++        // reject it, and the plain CPU variants are used as before.
++        if (hasDotProd && hasI8mm && hasAdreno) {
+           if (tryLoadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl")) {
+             jniLoaded = true;
+             loadedLib = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
+@@ -255,6 +276,7 @@
+         // Fallback to generic JNI
+         System.loadLibrary("rnllama_jni");
+         loadedLib = "rnllama_jni";
++        Log.w(TAG, "[diag] fell back to the generic JNI library");
+       }
+ 
+       System.loadLibrary("rnllama");
+@@ -304,8 +326,14 @@
+   private static boolean tryLoadLibrary(String libraryName) {
+     try {
+       System.loadLibrary(libraryName);
++      // DIAG: which variant actually gets loaded decides whether the GPU/NPU
++      // backends exist at all, and nothing else reports it.
++      Log.d(TAG, "[diag] loaded " + libraryName);
+       return true;
+-    } catch (UnsatisfiedLinkError ignored) {
++    } catch (UnsatisfiedLinkError e) {
++      // DIAG: the message names the dependency that failed to resolve, e.g.
++      // "dlopen failed: library \"libcdsprpc.so\" not found".
++      Log.w(TAG, "[diag] cannot load " + libraryName + ": " + e.getMessage());
+       return false;
+     }
+   }
