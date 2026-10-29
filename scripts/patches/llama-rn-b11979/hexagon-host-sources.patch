@@ -1,0 +1,18 @@
+--- a/android/src/main/rnllama/CMakeLists.txt
++++ b/android/src/main/rnllama/CMakeLists.txt
+@@ -99,6 +99,15 @@
+                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
+                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
+             )
++            # Newer llama.cpp splits the host-side op/fusion/kernel-param code
++            # into its own translation units; b11804 had all of it inside
++            # ggml-hexagon.cpp. Take them when the vendored tree has them, so the
++            # same CMake serves both revisions.
++            foreach(hexagon_extra htp-opnode.cpp htp-fusion.cpp htp-kparams.cpp)
++                if (EXISTS ${RNLLAMA_GGML_HEXAGON_DIR}/${hexagon_extra})
++                    target_sources(${target_name} PRIVATE ${RNLLAMA_GGML_HEXAGON_DIR}/${hexagon_extra})
++                endif()
++            endforeach()
+ 
+             # The Android host build consumes generated QAIC artifacts copied by
+             # scripts/build-hexagon-htp.sh. Keep the failure mode explicit when
