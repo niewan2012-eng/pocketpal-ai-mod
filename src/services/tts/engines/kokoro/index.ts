@@ -24,6 +24,8 @@ import type {
   VoiceFileSource,
 } from '../../types';
 import {KOKORO_VOICES} from './voices';
+import {createPhonemeStreamingHandle} from './zh/phonemeStreaming';
+import {zhTextToPhonemes} from './zh/zhPhonemizer';
 
 export type KokoroProgressCallback = (progress: number) => void;
 
@@ -42,6 +44,12 @@ export type KokoroProgressCallback = (progress: number) => void;
  * three neural engines for consistent battery/thermal behavior and easier
  * QA. The library default on iOS would otherwise include CoreML; we keep
  * it bare CPU for now.
+ *
+ * Mandarin: the zh voices ship in the same model and the same .bin format, but
+ * the library's G2P is an English dict lookup, so text input would be
+ * mispronounced (or dropped). For those voices the text is phonemized here
+ * (`zh/zhPhonemizer.ts`, misaki's pinyin->IPA) and handed over as
+ * `{ phonemes }`, which short-circuits the library's G2P.
  */
 export class KokoroEngine implements NeuralEngine {
   readonly id = 'kokoro' as const;
@@ -220,8 +228,22 @@ export class KokoroEngine implements NeuralEngine {
     }
   }
 
+  /**
+   * Fetch voice embeddings that are in the catalog but not on disk yet.
+   *
+   * The catalog grows (Mandarin was added after the first release), and voices
+   * are only downloaded by `downloadModel()`. Best-effort: a voice that cannot
+   * be fetched is skipped, and the engine still loads with the ones present.
+   */
+  private async ensureVoiceFiles(): Promise<void> {
+    for (const voice of KOKORO_VOICES) {
+      await ensureVoiceFileAt(voice, this.voiceFile(voice.id));
+    }
+  }
+
   async loadInto(): Promise<void> {
     const modelDir = this.getModelPath();
+    await this.ensureVoiceFiles();
     await Speech.initialize({
       engine: TTSEngine.KOKORO,
       modelPath: `file://${modelDir}/model_fp32.onnx`,
@@ -235,11 +257,26 @@ export class KokoroEngine implements NeuralEngine {
     });
   }
 
+  /**
+   * Text for `Speech.speak`: plain text for the English voices, pre-phonemized
+   * IPA for Mandarin. Falls back to the text when phonemization yields nothing
+   * (e.g. punctuation only) so the caller still hears an error-free no-op
+   * rather than a throw.
+   */
+  private speechInput(text: string, voice: Voice): string | {phonemes: string} {
+    if (voice.language !== 'zh') {
+      return text;
+    }
+    const phonemes = zhTextToPhonemes(text);
+    return phonemes ? {phonemes} : text;
+  }
+
   async play(text: string, voice: Voice): Promise<void> {
     if (!(await this.isInstalled())) {
       throw new Error('Kokoro model is not installed');
     }
-    await ttsRuntime.acquire(this, () => Speech.speak(text, voice.id));
+    const input = this.speechInput(text, voice);
+    await ttsRuntime.acquire(this, () => Speech.speak(input, voice.id));
   }
 
   playStreaming(
@@ -247,6 +284,11 @@ export class KokoroEngine implements NeuralEngine {
     waitFor?: Promise<void>,
     streamOpts?: StreamOptions,
   ): StreamingHandle {
+    // The library's stream phonemizes text itself with the English dict, so
+    // Mandarin sentences are phonemized here and played sentence by sentence.
+    if (voice.language === 'zh') {
+      return createPhonemeStreamingHandle(this, voice.id, waitFor, streamOpts);
+    }
     return createEngineStreamingHandle(this, voice.id, streamOpts, waitFor);
   }
 

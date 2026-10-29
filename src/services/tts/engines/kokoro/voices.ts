@@ -8,9 +8,10 @@ import type {Voice} from '../../types';
  * `f` = French, `h` = Hindi, `i` = Italian, `j` = Japanese, `p` =
  * Brazilian Portuguese, `z` = Mandarin Chinese. `f` = female, `m` = male.
  *
- * v1b scope: surface English voices only in the picker (filter at the UI
- * layer by `language === 'en'`). Language switching is deferred to the
- * v1b-TTS-language follow-up.
+ * Mandarin voices are included: they need no extra model files (same 82M
+ * model, same .bin format) but do need pre-phonemized input, because the
+ * library's dict G2P is English-only. `zhToPhonemes()` supplies misaki's
+ * pinyin->IPA, the G2P these embeddings were trained with.
  */
 export const KOKORO_VOICES: Voice[] = [
   // American English — female
@@ -169,6 +170,65 @@ export const KOKORO_VOICES: Voice[] = [
     name: 'Lewis',
     engine: 'kokoro',
     language: 'en-GB',
+    gender: 'm',
+  },
+
+  // Mandarin Chinese — female
+  {
+    id: 'zf_xiaobei',
+    name: 'Xiaobei',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'f',
+  },
+  {
+    id: 'zf_xiaoni',
+    name: 'Xiaoni',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'f',
+  },
+  {
+    id: 'zf_xiaoxiao',
+    name: 'Xiaoxiao',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'f',
+  },
+  {
+    id: 'zf_xiaoyi',
+    name: 'Xiaoyi',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'f',
+  },
+  // Mandarin Chinese — male
+  {
+    id: 'zm_yunjian',
+    name: 'Yunjian',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'm',
+  },
+  {
+    id: 'zm_yunxi',
+    name: 'Yunxi',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'm',
+  },
+  {
+    id: 'zm_yunxia',
+    name: 'Yunxia',
+    engine: 'kokoro',
+    language: 'zh',
+    gender: 'm',
+  },
+  {
+    id: 'zm_yunyang',
+    name: 'Yunyang',
+    engine: 'kokoro',
+    language: 'zh',
     gender: 'm',
   },
 ];
