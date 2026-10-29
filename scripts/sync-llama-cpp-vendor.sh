@@ -235,6 +235,27 @@ fi
 # sources the build then silently ignores.
 find "$WORK/llama.cpp" \( -name '*.rej' -o -name '*.orig' \) -delete
 
+# 4d. Fix-ups for llama.rn's own files (not the vendored tree): a new llama.cpp
+#     can need code the installed llama.rn does not know about yet — b11979's
+#     Hexagon host code moved into htp-opnode/htp-fusion/htp-kparams, which
+#     llama.rn's CMake source list predates.
+PKG_FIXUP_DIR="$ROOT/scripts/patches/llama-rn-$TAG"
+if [ -d "$PKG_FIXUP_DIR" ]; then
+  echo
+  echo "== applying llama.rn package fix-ups ($TAG) =="
+  for patch_file in "$PKG_FIXUP_DIR"/*.patch; do
+    [ -e "$patch_file" ] || continue
+    name="$(basename "$patch_file" .patch)"
+    if patch -p1 -l --no-backup-if-mismatch -d "$LLAMA_RN" -i "$patch_file" > /dev/null 2>&1; then
+      echo "  ok   $name"
+    else
+      FAILED=$((FAILED + 1))
+      echo "  FAIL $name"
+      patch -p1 -l --dry-run -d "$LLAMA_RN" -i "$patch_file" 2>&1 | grep -E 'FAILED|Hunk' | sed 's/^/         /' || true
+    fi
+  done
+fi
+
 # 5. Swap in the result.
 rm -rf "$VENDOR"
 mv "$WORK/llama.cpp" "$VENDOR"
