@@ -163,8 +163,10 @@ export async function getDeviceOptions(): Promise<DeviceOption[]> {
 
   // Option 3: Hexagon (if available)
   if (hexagonDevice) {
-    // Hexagon varies, but 'off' is safest
-    // Conservative: only allow 'off' to avoid runtime errors
+    // ggml-hexagon implements FLASH_ATTN_EXT, and a quantized V cache needs it,
+    // so 'on' is offered as an explicit choice. The default stays 'off': FA on
+    // the DSP is the experimental path, and 'auto' is excluded because a
+    // runtime decision to disable it would break a quantized V cache.
     options.push({
       id: 'hexagon',
       label: 'Hexagon',
@@ -172,7 +174,7 @@ export async function getDeviceOptions(): Promise<DeviceOption[]> {
       devices: [hexagonDevice.deviceName],
       n_gpu_layers: 99,
       default_flash_attn_type: 'off',
-      valid_flash_attn_types: ['off'], // Conservative: only 'off' is guaranteed safe
+      valid_flash_attn_types: ['off', 'on'],
       tag: 'Experimental',
       experimental: true,
       platform: 'android',

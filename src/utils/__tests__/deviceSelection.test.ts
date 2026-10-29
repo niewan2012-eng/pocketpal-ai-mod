@@ -39,7 +39,7 @@ describe('Hexagon device selection', () => {
         deviceInfo: devices.find(d => d.deviceName === expected),
         n_gpu_layers: 99,
         default_flash_attn_type: 'off',
-        valid_flash_attn_types: ['off'],
+        valid_flash_attn_types: ['off', 'on'],
         experimental: true,
       });
       expect(

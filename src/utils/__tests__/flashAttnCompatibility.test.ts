@@ -153,12 +153,11 @@ describe('flashAttnCompatibility', () => {
         );
       });
 
-      it('should be unsafe for Hexagon backend', () => {
+      it('should be safe for Hexagon backend (explicit FA on)', () => {
+        // ggml-hexagon implements FLASH_ATTN_EXT; the settings UI offers 'on'
+        // as a deliberate choice for the NPU device.
         const result = isCacheTypeVSafe(CacheType.Q8_0, 'on', 'hexagon');
-        expect(result.safe).toBe(false);
-        expect(result.reason).toContain(
-          'Hexagon flash attention support varies',
-        );
+        expect(result.safe).toBe(true);
       });
     });
 
@@ -184,10 +183,12 @@ describe('flashAttnCompatibility', () => {
         expect(result.reason).toContain('OpenCL auto-disables flash attention');
       });
 
-      it('should be unsafe for Hexagon backend', () => {
+      it('should be unsafe for Hexagon backend with auto', () => {
+        // 'auto' may disable FA at runtime, which a quantized V cache cannot
+        // survive; Hexagon has to pick 'on' explicitly.
         const result = isCacheTypeVSafe(CacheType.Q8_0, 'auto', 'hexagon');
         expect(result.safe).toBe(false);
-        expect(result.reason).toContain('varies by device');
+        expect(result.reason).toContain('choose flash attention "on"');
       });
 
       it('should handle all quantized types with auto on Metal', () => {
@@ -307,7 +308,7 @@ describe('flashAttnCompatibility', () => {
 
       expect(f16Option?.disabled).toBe(false);
       expect(q8Option?.disabled).toBe(true);
-      expect(q8Option?.reason).toContain('varies by device');
+      expect(q8Option?.reason).toContain('choose flash attention "on"');
     });
   });
 

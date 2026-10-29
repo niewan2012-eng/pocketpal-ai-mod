@@ -112,15 +112,12 @@ export function isCacheTypeVSafe(
           'OpenCL does not support flash attention (required for quantized V cache)',
       };
     }
-    // Hexagon support is device-dependent but 'on' should work if supported
-    if (backend === 'hexagon') {
-      return {
-        safe: false,
-        reason:
-          'Hexagon flash attention support varies by device (use "off" with F16/F32 for safety)',
-      };
-    }
-    // Metal, CPU, BLAS: safe with 'on'
+    // Hexagon: ggml-hexagon implements FLASH_ATTN_EXT and picks its kernel with
+    // GGML_HEXAGON_FA_SELECT/FA_SPLIT, so an explicit 'on' is a deliberate
+    // choice the settings UI offers. It stays off the 'auto' path below: with
+    // 'auto' the runtime may disable FA, and a quantized V cache then fails to
+    // initialise.
+    // Metal, CPU, BLAS, Hexagon: safe with 'on'
     return {safe: true};
   }
 
@@ -138,12 +135,12 @@ export function isCacheTypeVSafe(
   }
 
   // Hexagon + 'auto' + quantized V = ⚠️ Risky
-  // (depends on device FA support; will error if not supported)
+  // (auto may disable FA at runtime, and quantized V then fails to initialise)
   if (backend === 'hexagon') {
     return {
       safe: false,
       reason:
-        'Hexagon flash attention support varies by device; quantized V cache may fail at runtime',
+        'Hexagon: choose flash attention "on" explicitly for a quantized V cache (auto may turn it off)',
     };
   }
 
