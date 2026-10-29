@@ -1,0 +1,24 @@
+--- a/ggml/src/ggml-metal/ggml-metal-device.m
++++ b/ggml/src/ggml-metal/ggml-metal-device.m
+@@ -508,10 +508,10 @@
+     const int64_t t_start = ggml_time_us();
+ 
+     NSError * error = nil;
+-    NSString * path_lib = ggml_metal_find_metallib(bundle, @"default");
++    NSString * path_lib = ggml_metal_find_metallib(bundle, @"rnllama");
+ 
+     if (path_lib != nil) {
+-        // pre-compiled library found: a single combined default.metallib
++        // pre-compiled library found: a single combined rnllama.metallib
+         NSURL * libURL = [NSURL fileURLWithPath:path_lib];
+         GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_lib UTF8String]);
+ 
+@@ -552,7 +552,7 @@
+     }
+ 
+     // no pre-compiled metallib: fall back to compiling each kernel source separately
+-    GGML_LOG_INFO("%s: default.metallib not found, loading kernel sources\n", __func__);
++    GGML_LOG_INFO("%s: no precompiled metallib, loading kernel sources\n", __func__);
+ 
+     NSString * path_resource = [[NSProcessInfo processInfo].environment objectForKey:@"GGML_METAL_PATH_RESOURCES"];
+     if (path_resource) {
