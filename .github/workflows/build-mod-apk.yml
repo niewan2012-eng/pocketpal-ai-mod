@@ -126,11 +126,25 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      # Guarded in the shell, not with an `if:` expression: the first run showed
+      # `hashFiles()` returning empty here, which silently skipped the re-vendor
+      # and would have shipped llama.rn's older llama.cpp under this branch's
+      # name. A step that prints why it skipped cannot do that unnoticed.
       - name: Re-vendor llama.cpp
-        if: ${{ env.LLAMA_CPP_TAG != '' && hashFiles('scripts/sync-llama-cpp-vendor.sh') != '' }}
         run: |
           set -euo pipefail
+          if [ -z "${LLAMA_CPP_TAG:-}" ]; then
+            echo "no llama_cpp_tag given: keeping llama.rn's pinned llama.cpp"
+            exit 0
+          fi
+          if [ ! -f scripts/sync-llama-cpp-vendor.sh ]; then
+            echo "::error::llama_cpp_tag=$LLAMA_CPP_TAG but this branch has no sync script"
+            exit 1
+          fi
           bash scripts/sync-llama-cpp-vendor.sh "$LLAMA_CPP_TAG" 2>&1 | tee ci-logs/sync-vendor.log
+          echo "--- vendored ref ---"
+          grep -E '^LLAMA_CPP_(REF|COMMIT)=' node_modules/llama.rn/vendor/VERSIONS
+          grep -E "BUILD_(NUMBER|COMMIT)" node_modules/llama.rn/src/version.ts
 
       # The SDK is the Community Edition repacked for CI by snapdragon-toolchain,
       # not a Qualcomm download: no account and no click-through licence. Pinned
