@@ -22,7 +22,7 @@ import {getBenchmarkMatrix} from '../fixtures/benchmark-models';
 // WebdriverIO's own globals at runtime.
 declare const driver: any;
 
-export const PACKAGE = 'com.pocketpalai.e2e';
+export const PACKAGE = 'com.pocketpalai.mod.e2e';
 export const REMOTE_DIR = `/sdcard/Android/data/${PACKAGE}/files`;
 
 // argv-style adb invocation. The udid flows in from process.env (E2E_DEVICE_UDID)

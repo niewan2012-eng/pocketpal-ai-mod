@@ -87,13 +87,20 @@ android {
 
     namespace "com.pocketpal"
     defaultConfig {
-        applicationId "com.pocketpalai"
+        // Fork build: different applicationId from the official
+        // `com.pocketpalai` so this APK installs (and runs) side by side
+        // with the official app without sharing data or upgrades.
+        applicationId "com.pocketpalai.mod"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 157
-        versionName "1.21.4"
+        versionName "1.21.4-mod"
         ndk {
-            abiFilters "arm64-v8a", "x86_64"
+            // Fork build ships arm64-v8a only: it keeps the from-source
+            // llama.cpp build (one full compile per CPU-feature variant) to a
+            // size that finishes locally. Pass
+            // -PreactNativeArchitectures=x86_64 and re-add it here for emulators.
+            abiFilters "arm64-v8a"
         }
     }
     externalNativeBuild {
@@ -151,7 +158,7 @@ android {
         releaseE2e {
             // E2E buildType: inherits 95% of release (Hermes, minify toggle,
             // proguard rules), then overrides:
-            //   1. debuggable=true so `adb shell run-as com.pocketpalai.e2e`
+            //   1. debuggable=true so `adb shell run-as com.pocketpalai.mod.e2e`
             //      works for the benchmark-matrix preseed workflow.
             //   2. Debug signing — E2E builds are never shipped to stores.
             //   3. matchingFallbacks so dependencies resolve to their release
@@ -174,12 +181,12 @@ android {
     productFlavors {
         prod {
             dimension "distribution"
-            // applicationId stays as defaultConfig: com.pocketpalai
+            // applicationId stays as defaultConfig: com.pocketpalai.mod
         }
         e2e {
             dimension "distribution"
             applicationIdSuffix ".e2e"
-            // Effective applicationId: com.pocketpalai.e2e
+            // Effective applicationId: com.pocketpalai.mod.e2e
             // Separate sandbox; installs side-by-side with prod.
         }
     }

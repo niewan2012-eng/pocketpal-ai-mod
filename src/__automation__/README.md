@@ -13,9 +13,9 @@ The folder is gated behind the `__E2E__` global, inlined at build time by
 - Everything else (default dev + prod) → `__E2E__ = false` → Metro/Hermes
   strips the entire gate body (and, transitively, the imports it reaches).
 
-The Android `e2e` flavor (`applicationId com.pocketpalai.e2e`,
+The Android `e2e` flavor (`applicationId com.pocketpalai.mod.e2e`,
 buildType `releaseE2e`) is the production-like build that sets
-`E2E_BUILD=true`. The default prod flavor (`com.pocketpalai`) leaves
+`E2E_BUILD=true`. The default prod flavor (`com.pocketpalai.mod`) leaves
 `E2E_BUILD` unset.
 
 Two independent guardrails enforce the contract:

@@ -250,7 +250,7 @@ index eb52272..9ff97ad 100644
      void invokeAsyncTracked(
          std::shared_ptr<react::CallInvoker> callInvoker,
 diff --git a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
-index ffabac4..7ca8748 100644
+index ffd7942..0a9d6c7 100644
 --- a/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
 +++ b/node_modules/llama.rn/cpp/jsi/RNLlamaJSI.cpp
 @@ -13,11 +13,13 @@
@@ -728,7 +728,7 @@ index 7a065cb..5012051 100644
  #if defined(__ANDROID__)
      void setAndroidLoadedLibrary(const std::string& name);
 diff --git a/node_modules/llama.rn/cpp/rn-completion.cpp b/node_modules/llama.rn/cpp/rn-completion.cpp
-index 15e26d4..4609ffc 100644
+index 9d1b833..8d17322 100644
 --- a/node_modules/llama.rn/cpp/rn-completion.cpp
 +++ b/node_modules/llama.rn/cpp/rn-completion.cpp
 @@ -610,7 +610,17 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
@@ -825,7 +825,7 @@ index 15e26d4..4609ffc 100644
  }
  
  void llama_rn_context_completion::resetGenerationTimings() {
-@@ -1494,12 +1556,14 @@ completion_token_output llama_rn_context_completion::nextToken()
+@@ -1516,12 +1578,14 @@ completion_token_output llama_rn_context_completion::nextToken()
          } else {
              if (llama_decode(parent_ctx->ctx, llama_batch_get_one(&embd[n_past], n_eval)))
              {
@@ -846,7 +846,7 @@ index 15e26d4..4609ffc 100644
                  // Trim embd to what the memory actually contains so a later prefix
                  // match can't claim never-written cells.
                  embd.resize(n_past);
-@@ -1768,7 +1832,18 @@ size_t llama_rn_context_completion::findStoppingStrings(const std::string &text,
+@@ -1790,7 +1854,18 @@ size_t llama_rn_context_completion::findStoppingStrings(const std::string &text,
  
  completion_token_output llama_rn_context_completion::doCompletion()
  {
@@ -867,7 +867,7 @@ index 15e26d4..4609ffc 100644
      const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(parent_ctx->ctx, token_with_probs.tok);
      generated_text += utf8_gate.feed(token_text);
 diff --git a/node_modules/llama.rn/cpp/rn-completion.h b/node_modules/llama.rn/cpp/rn-completion.h
-index 55353e1..2c1a598 100644
+index d152478..13c490f 100644
 --- a/node_modules/llama.rn/cpp/rn-completion.h
 +++ b/node_modules/llama.rn/cpp/rn-completion.h
 @@ -79,7 +79,7 @@ struct llama_rn_context_completion {
@@ -888,7 +888,7 @@ index 55353e1..2c1a598 100644
      void startGenerationTiming();
      void updateGenerationTiming();
 diff --git a/node_modules/llama.rn/cpp/rn-llama.cpp b/node_modules/llama.rn/cpp/rn-llama.cpp
-index c72db47..a862539 100644
+index 87e7ec8..d3634c2 100644
 --- a/node_modules/llama.rn/cpp/rn-llama.cpp
 +++ b/node_modules/llama.rn/cpp/rn-llama.cpp
 @@ -128,6 +128,28 @@ void install_ggml_abort_handler() {
@@ -940,11 +940,11 @@ index c72db47..a862539 100644
      }
 +    llama_set_abort_callback(ctx, llama_rn_abort_callback, this);
  
-     if (params.speculative.has_dft() &&
-         has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
-@@ -713,7 +743,13 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
+     // Load the draft model for embedded MTP drafts and for classic standalone draft models
+     // (draft-simple) alike. Gating this on MTP alone silently disabled speculation for
+@@ -724,7 +754,13 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
+     cparams.type_k = params_for_context.speculative.draft.cache_type_k;
      cparams.type_v = params_for_context.speculative.draft.cache_type_v;
-     cparams.ctx_other = ctx;
  
 -    return llama_init_from_model(model_dft, cparams);
 +    llama_context * draft_ctx = llama_init_from_model(model_dft, cparams);
@@ -991,7 +991,7 @@ index 0065b43..122681f 100644
              }
              n_past = new_n_past;
 diff --git a/node_modules/llama.rn/llama-rn.podspec b/node_modules/llama.rn/llama-rn.podspec
-index 413627a..651c91a 100644
+index 413627a..3e4aa61 100644
 --- a/node_modules/llama.rn/llama-rn.podspec
 +++ b/node_modules/llama.rn/llama-rn.podspec
 @@ -7,12 +7,12 @@ base_compiler_flags = "-fno-objc-arc -fvisibility-inlines-hidden -DGGML_USE_CPU
@@ -1061,10 +1061,10 @@ index 039933f..1fdd5d4 100644
      return llamaStopCompletion(this.id)
    }
 diff --git a/node_modules/llama.rn/vendor/llama.cpp/ggml/src/ggml-metal/ggml-metal-device.m b/node_modules/llama.rn/vendor/llama.cpp/ggml/src/ggml-metal/ggml-metal-device.m
-index 951cb80..abf61ae 100644
+index d1bce8b..3923ca9 100644
 --- a/node_modules/llama.rn/vendor/llama.cpp/ggml/src/ggml-metal/ggml-metal-device.m
 +++ b/node_modules/llama.rn/vendor/llama.cpp/ggml/src/ggml-metal/ggml-metal-device.m
-@@ -506,10 +506,10 @@ ggml_metal_library_t ggml_metal_library_init(ggml_metal_device_t dev) {
+@@ -508,10 +508,10 @@ ggml_metal_library_t ggml_metal_library_init(ggml_metal_device_t dev) {
      const int64_t t_start = ggml_time_us();
  
      NSError * error = nil;
@@ -1077,7 +1077,7 @@ index 951cb80..abf61ae 100644
          NSURL * libURL = [NSURL fileURLWithPath:path_lib];
          GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_lib UTF8String]);
  
-@@ -550,7 +550,7 @@ ggml_metal_library_t ggml_metal_library_init(ggml_metal_device_t dev) {
+@@ -552,7 +552,7 @@ ggml_metal_library_t ggml_metal_library_init(ggml_metal_device_t dev) {
      }
  
      // no pre-compiled metallib: fall back to compiling each kernel source separately

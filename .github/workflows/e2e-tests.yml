@@ -71,7 +71,7 @@ jobs:
                 "client_info": {
                   "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
                   "android_client_info": {
-                    "package_name": "com.pocketpalai"
+                    "package_name": "com.pocketpalai.mod"
                   }
                 },
                 "api_key": [{
@@ -82,7 +82,7 @@ jobs:
                 "client_info": {
                   "mobilesdk_app_id": "1:000000000000:android:1111111111111111",
                   "android_client_info": {
-                    "package_name": "com.pocketpalai.e2e"
+                    "package_name": "com.pocketpalai.mod.e2e"
                   }
                 },
                 "api_key": [{

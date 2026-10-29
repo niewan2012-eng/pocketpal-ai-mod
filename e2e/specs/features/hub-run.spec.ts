@@ -28,7 +28,7 @@ declare const driver: WebdriverIO.Browser;
 declare const browser: WebdriverIO.Browser;
 
 // The e2e flavor uses the .e2e applicationId suffix; iOS keeps the prod bundle.
-const ANDROID_PACKAGE = 'com.pocketpalai.e2e';
+const ANDROID_PACKAGE = 'com.pocketpalai.mod.e2e';
 const IOS_BUNDLE_ID = 'ai.pocketpal';
 
 // QUICK_TEST_MODEL is SmolLM2-135M (bartowski/SmolLM2-135M-Instruct-GGUF). The

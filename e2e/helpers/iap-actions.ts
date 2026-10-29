@@ -19,7 +19,7 @@ declare const driver: WebdriverIO.Browser;
 declare const browser: WebdriverIO.Browser;
 
 export const IOS_BUNDLE_ID = 'ai.pocketpal';
-export const ANDROID_PACKAGE = 'com.pocketpalai.e2e';
+export const ANDROID_PACKAGE = 'com.pocketpalai.mod.e2e';
 
 export const appId = (): string =>
   driver.isAndroid ? ANDROID_PACKAGE : IOS_BUNDLE_ID;
