@@ -1,0 +1,267 @@
+name: Build fork APK (llama.cpp re-vendor + optional NPU)
+
+# Builds the fork's prodRelease APK on a clean Linux x86_64 runner.
+#
+# Why this exists: two things cannot be built on the Windows dev machine —
+#   1. the Hexagon DSP libraries: llama.cpp's ggml-hexagon/htp needs
+#      hexagon-clang, which upstream ships only as Linux x86_64 / Windows ARM64
+#      binaries, so the NPU backend is only compiled when those libs exist for
+#      the llama.cpp revision being built;
+#   2. any llama.cpp revision newer than the one llama.rn pins, because moving
+#      the vendored tree means replaying llama.rn's llama.cpp patch set and the
+#      resulting object paths overflow Windows' 260-character limit.
+# A Linux runner is exactly the missing piece; nothing has to be installed
+# locally and no Qualcomm account is involved (see Provision the Hexagon SDK).
+#
+# workflow_dispatch inputs:
+#   llama_cpp_tag  llama.cpp build tag to re-vendor (e.g. b11979); empty keeps
+#                  llama.rn's pin. Requires scripts/sync-llama-cpp-vendor.sh.
+#   with_hexagon   compile the Hexagon NPU backend (downloads the SDK, ~4.6 GB).
+#   variants       rnllama variant allowlist; empty = the manifest's set.
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_cpp_tag:
+        description: "llama.cpp build tag to re-vendor (e.g. b11979); empty keeps llama.rn's pin"
+        required: false
+        default: ""
+      with_hexagon:
+        description: "Compile the Hexagon NPU backend (downloads the Hexagon SDK)"
+        type: boolean
+        required: false
+        default: true
+      variants:
+        description: "Comma-separated rnllama variants; empty = all in the payload manifest"
+        required: false
+        default: ""
+  push:
+    branches:
+      - feat/llama-cpp-b11979
+      - feat/mod-fork-base
+
+permissions:
+  contents: read
+
+env:
+  # llama.rn's own gradle.properties sets rnllamaBuildFromSource=false, and a
+  # subproject value beats the root project's, so only an environment property
+  # or -P wins. Building from source is what puts the llama.rn patch into the
+  # shipped .so, which the payload gate checks for.
+  ORG_GRADLE_PROJECT_rnllamaBuildFromSource: "true"
+  PYTHONUTF8: "1"
+
+jobs:
+  build:
+    # 22.04, not 24.04: the Hexagon toolchain's clang needs libtinfo5, which
+    # 24.04 no longer ships.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve inputs
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.llama_cpp_tag }}"
+            hexagon="${{ inputs.with_hexagon }}"
+            variants="${{ inputs.variants }}"
+          else
+            # push: build what the branch is for. On branches without
+            # scripts/sync-llama-cpp-vendor.sh the sync step is skipped, so this
+            # tag simply does not apply there.
+            tag="b11979"
+            hexagon="true"
+            variants=""
+          fi
+          [ -n "$variants" ] || variants="rnllama,rnllama_v8,rnllama_v8_2,rnllama_v8_2_dotprod,rnllama_v8_2_dotprod_i8mm,rnllama_v8_2_dotprod_i8mm_hexagon_opencl"
+          mkdir -p ci-logs
+          {
+            echo "LLAMA_CPP_TAG=$tag"
+            echo "WITH_HEXAGON=$hexagon"
+            echo "RNLLAMA_VARIANTS=$variants"
+          } >> "$GITHUB_ENV"
+          echo "tag='$tag' hexagon='$hexagon'"
+          echo "variants='$variants'"
+
+      # The runner image leaves ~14 GB; six llama.cpp variant trees plus the SDK
+      # do not fit without this. The Android SDK itself must stay.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/lib/android/sdk/system-images
+          df -h /
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21.0"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install yarn
+        run: npm install -g yarn@1.22.22
+
+      # node_modules is deliberately not cached: it carries llama.rn's native
+      # build trees (.cxx, android/build), and a cache restored under a different
+      # llama_cpp_tag would make ninja reuse objects built from another vendored
+      # tree. The yarn cache keeps most of the speedup without that risk.
+      - name: Cache yarn
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/yarn
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('yarn.lock', 'android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Re-vendor llama.cpp
+        if: ${{ env.LLAMA_CPP_TAG != '' && hashFiles('scripts/sync-llama-cpp-vendor.sh') != '' }}
+        run: |
+          set -euo pipefail
+          bash scripts/sync-llama-cpp-vendor.sh "$LLAMA_CPP_TAG" 2>&1 | tee ci-logs/sync-vendor.log
+
+      # The SDK is the Community Edition repacked for CI by snapdragon-toolchain,
+      # not a Qualcomm download: no account and no click-through licence. Pinned
+      # by digest because a release asset can be replaced under a fixed tag.
+      # 6.7.0.0 / tools 21.0.04 is what llama.rn 0.13.0-rc.8 is built against.
+      - name: Provision the Hexagon SDK
+        if: ${{ env.WITH_HEXAGON == 'true' }}
+        run: |
+          set -euo pipefail
+          SDK_VERSION=6.7.0.0
+          TOOLS_VERSION=21.0.04
+          SDK_SHA256=00725fc449916d7b9af2c2a3c6b54d61f3c872d5dbc1d3ca3fd2f839b1d5dc70
+          SDK_ROOT="$HOME/.hexagon-sdk/$SDK_VERSION"
+          if [ ! -d "$SDK_ROOT/incs" ]; then
+            curl -fsSL -o /tmp/hexagon-sdk.tar.xz \
+              "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v$SDK_VERSION/hexagon-sdk-v$SDK_VERSION-amd64-lnx.tar.xz"
+            echo "$SDK_SHA256  /tmp/hexagon-sdk.tar.xz" | sha256sum -c -
+            mkdir -p /tmp/hexagon-unpacked
+            tar -xJf /tmp/hexagon-sdk.tar.xz -C /tmp/hexagon-unpacked --strip-components=1 || true
+            mkdir -p "$HOME/.hexagon-sdk"
+            mv /tmp/hexagon-unpacked "$SDK_ROOT"
+            rm -f /tmp/hexagon-sdk.tar.xz
+          fi
+          test -x "$SDK_ROOT/tools/HEXAGON_Tools/$TOOLS_VERSION/Tools/bin/hexagon-clang"
+          echo "HEXAGON_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "HEXAGON_TOOLS_ROOT=$SDK_ROOT/tools/HEXAGON_Tools/$TOOLS_VERSION" >> "$GITHUB_ENV"
+
+      # Builds libggml-htp-v{73,75,79,81,85}.so into node_modules/llama.rn/bin and
+      # generates the FastRPC stub the host build compiles against. The script
+      # lives in llama.rn's repo, not in the published package. Docker is only
+      # needed on macOS, so it runs natively here.
+      - name: Build the Hexagon DSP libraries
+        if: ${{ env.WITH_HEXAGON == 'true' }}
+        run: |
+          set -euo pipefail
+          LLAMA_RN_TAG="v$(node -p "require('./node_modules/llama.rn/package.json').version")"
+          mkdir -p node_modules/llama.rn/scripts
+          curl -fsSL -o node_modules/llama.rn/scripts/build-hexagon-htp.sh \
+            "https://raw.githubusercontent.com/mybigday/llama.rn/$LLAMA_RN_TAG/scripts/build-hexagon-htp.sh"
+          cd node_modules/llama.rn
+          USE_DOCKER=no bash scripts/build-hexagon-htp.sh 2>&1 | tee ../../ci-logs/hexagon-dsp.log
+          ls -lh bin/arm64-v8a/libggml-htp-*.so
+          ls -l vendor/llama.cpp/ggml/src/ggml-hexagon/htp/v73/
+
+      # react-native-config and the google-services plugin both read files that
+      # are gitignored; CI has always generated dummies.
+      - name: Create dummy .env and google-services.json
+        run: |
+          set -euo pipefail
+          cat > .env <<'EOL'
+          FIREBASE_FUNCTIONS_URL=https://dummy-firebase-url.com
+          SUPABASE_URL=https://dummy-supabase-url.supabase.co
+          SUPABASE_ANON_KEY=dummy-anon-key-for-ci-builds
+          PALSHUB_API_BASE_URL=https://dummy-palshub-api.com
+          APP_URL=pocketpal://app
+          ENABLE_PALSHUB_INTEGRATION=true
+          ENABLE_AUTHENTICATION=true
+          ENABLE_OFFLINE_MODE=true
+          GOOGLE_IOS_CLIENT_ID=dummy-ios-client-id.apps.googleusercontent.com
+          GOOGLE_WEB_CLIENT_ID=dummy-web-client-id.apps.googleusercontent.com
+          EOL
+          cat > android/app/google-services.json <<'EOL'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "dummy-project-for-ci",
+              "storage_bucket": "dummy-project-for-ci.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                "android_client_info": { "package_name": "com.pocketpalai.mod" }
+              },
+              "api_key": [{ "current_key": "dummy-api-key-for-ci-builds" }]
+            }]
+          }
+          EOL
+
+      - name: Build prodRelease APK
+        working-directory: android
+        run: |
+          set -euo pipefail
+          # Never trust a leftover native build tree: the vendored llama.cpp may
+          # differ from whatever produced it.
+          rm -rf ../node_modules/llama.rn/android/.cxx ../node_modules/llama.rn/android/build
+          ./gradlew assembleProdRelease \
+            -PreactNativeArchitectures=arm64-v8a \
+            "-PrnllamaVariants=$RNLLAMA_VARIANTS" 2>&1 | tee ../ci-logs/gradle-build.log
+
+      # The manifest also asks for x86_64 libraries. This fork ships arm64-v8a
+      # only, so those four lines are expected; anything else is a hard failure.
+      - name: Verify the APK payload
+        run: |
+          set -euo pipefail
+          APK=$(ls android/app/build/outputs/apk/prod/release/*.apk | head -1)
+          node scripts/verify-android-payload.js --apk "$APK" --report ci-logs/payload-report.txt \
+            | tee ci-logs/payload.log || true
+          BAD=$(grep -E '^FAIL' ci-logs/payload.log | grep -vE 'lib/x86_64/' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::payload verification failed beyond the arm64-only deviation"
+            printf '%s\n' "$BAD"
+            exit 1
+          fi
+          echo "payload ok (x86_64 skipped: arm64-only fork)"
+
+      - name: Report the compiled backends
+        if: always()
+        run: |
+          set -euo pipefail
+          APK=$(ls android/app/build/outputs/apk/prod/release/*.apk 2>/dev/null | head -1 || true)
+          if [ -n "$APK" ]; then
+            unzip -l "$APK" | grep -E 'lib/arm64-v8a/librnllama|assets/ggml-hexagon' || true
+          fi
+          grep -E 'Hexagon|OpenCL|Building rnllama variants' ci-logs/gradle-build.log | sort -u || true
+
+      # Logs first and unconditionally: the interesting run is the one that
+      # failed, and that is exactly when the APK step below has nothing to ship.
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocketpal-mod-apk
+          path: android/app/build/outputs/apk/prod/release/*.apk
+          if-no-files-found: error
+          retention-days: 14

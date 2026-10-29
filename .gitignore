@@ -112,5 +112,15 @@ android/android-build.log
 # screenshot inventories). Live in the dev-team repo and are sometimes
 # synced into the worktree for local reference; never committed here.
 workflows/
+# ...except the fork's own workflow: Actions is the only Linux the dev
+# machine has, so this one file has to be tracked.
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/build-mod-apk.yml
 # Local fork build artifacts
 dist/
+
+# The fork ships exactly one workflow of its own (Actions is the only Linux the
+# dev machine has); everything else under workflows/ stays untracked.
+!.github/workflows/build-mod-apk.yml
+
