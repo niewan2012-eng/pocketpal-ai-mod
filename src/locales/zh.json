@@ -1262,7 +1262,8 @@
     "benchmark": "基准测试",
     "settings": "设置",
     "appInfo": "关于",
-    "testCompletion": "测试完成"
+    "testCompletion": "测试完成",
+    "apiServer": "API 服务"
   },
   "chat": {
     "conversationReset": "对话已重置！",
@@ -1747,5 +1748,22 @@
       "subtitleTwo": "{{first}}、{{second}}",
       "subtitleMore": "{{first}}、{{second}}等"
     }
+  },
+  "apiServer": {
+    "title": "API 服务",
+    "description": "把本机已加载的模型通过 HTTP 提供出去，同一 Wi-Fi 下的其他设备就能使用。提供 OpenAI 兼容接口，并自带一个浏览器聊天页面。使用期间请保持 App 运行。",
+    "enable": "启用服务",
+    "listening": "正在监听端口 {{port}}",
+    "stopped": "已停止，没有监听",
+    "address": "访问地址",
+    "noAddressRunning": "没找到局域网 IPv4 地址，Wi-Fi 是否已连接？",
+    "noAddressStopped": "打开开关后会显示访问地址",
+    "tapToCopy": "点击复制",
+    "openPage": "打开聊天页面",
+    "endpoints": "接口列表",
+    "clientHint": "任何 OpenAI 兼容客户端都可以连接：Base URL 填 {{baseUrl}}，API Key 随便填。",
+    "model": "当前模型",
+    "noModel": "未加载模型，请求会返回 503",
+    "copied": "地址已复制"
   }
 }

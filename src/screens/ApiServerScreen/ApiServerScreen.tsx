@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useContext, useEffect, useState} from 'react';
 import {
   Linking,
   ScrollView,
@@ -28,6 +28,8 @@ import {
   syncState,
 } from '../../services/apiServer';
 import {modelStore} from '../../store';
+import {L10nContext} from '../../utils';
+import {t} from '../../locales';
 import type {Theme} from '../../utils/types';
 
 /**
@@ -39,6 +41,8 @@ import type {Theme} from '../../utils/types';
  */
 export const ApiServerScreen: React.FC = observer(() => {
   const theme = useTheme();
+  const l10n = useContext(L10nContext);
+  const copy = l10n.apiServer;
   const styles = createStyles(theme);
 
   const [running, setRunning] = useState(isRunning());
@@ -88,24 +92,18 @@ export const ApiServerScreen: React.FC = observer(() => {
         <View style={styles.headerRow}>
           <GlobeIcon width={26} height={26} stroke={theme.colors.primary} />
           <Text variant="titleMedium" style={styles.title}>
-            API server
+            {copy.title}
           </Text>
           {busy ? <ActivityIndicator size={18} /> : null}
         </View>
 
-        <Text style={styles.description}>
-          Serves the model loaded in this app over HTTP, so other devices on the
-          same Wi-Fi can use it — OpenAI-compatible endpoints plus a small chat
-          page in the browser. Keep the app open while it is in use.
-        </Text>
+        <Text style={styles.description}>{copy.description}</Text>
 
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text variant="bodyLarge">Enable</Text>
+            <Text variant="bodyLarge">{copy.enable}</Text>
             <Text style={styles.rowHint}>
-              {running
-                ? `Listening on port ${port}`
-                : 'Stopped — nothing is listening'}
+              {running ? t(copy.listening, {port: String(port)}) : copy.stopped}
             </Text>
           </View>
           <Switch
@@ -119,23 +117,19 @@ export const ApiServerScreen: React.FC = observer(() => {
         <Divider />
 
         <View style={styles.section}>
-          <Text variant="bodyLarge">Address</Text>
+          <Text variant="bodyLarge">{copy.address}</Text>
           {urls.length === 0 ? (
             <Text style={styles.rowHint}>
-              {running
-                ? 'No LAN IPv4 address found — is Wi-Fi connected?'
-                : 'Turn the server on to see its address'}
+              {running ? copy.noAddressRunning : copy.noAddressStopped}
             </Text>
           ) : (
             urls.map(url => (
               <TouchableOpacity
                 key={url}
                 style={styles.urlRow}
-                onPress={() => {
-                  Clipboard.setString(url);
-                }}>
+                onPress={() => Clipboard.setString(url)}>
                 <Text style={styles.url}>{url}</Text>
-                <Text style={styles.copyHint}>tap to copy</Text>
+                <Text style={styles.copyHint}>{copy.tapToCopy}</Text>
               </TouchableOpacity>
             ))
           )}
@@ -145,7 +139,7 @@ export const ApiServerScreen: React.FC = observer(() => {
               icon="open-in-new"
               style={styles.button}
               onPress={() => Linking.openURL(primaryUrl).catch(() => {})}>
-              Open the chat page
+              {copy.openPage}
             </Button>
           ) : null}
         </View>
@@ -153,27 +147,25 @@ export const ApiServerScreen: React.FC = observer(() => {
         <Divider />
 
         <View style={styles.section}>
-          <Text variant="bodyLarge">Endpoints</Text>
+          <Text variant="bodyLarge">{copy.endpoints}</Text>
           <Text style={styles.mono}>GET /v1/models</Text>
           <Text style={styles.mono}>
-            POST /v1/chat/completions (stream supported)
+            POST /v1/chat/completions (stream: true)
           </Text>
           <Text style={styles.mono}>GET /health</Text>
           <Text style={styles.rowHint}>
-            Point any OpenAI-compatible client at
-            {primaryUrl
-              ? ` ${primaryUrl}/v1`
-              : ' http://<phone-ip>:8080/v1'}{' '}
-            with any API key string.
+            {t(copy.clientHint, {
+              baseUrl: primaryUrl ? `${primaryUrl}/v1` : 'http://<IP>:8080/v1',
+            })}
           </Text>
         </View>
 
         <Divider />
 
         <View style={styles.section}>
-          <Text variant="bodyLarge">Model</Text>
+          <Text variant="bodyLarge">{copy.model}</Text>
           <Text style={modelName ? styles.mono : styles.rowHint}>
-            {modelName ?? 'No model loaded — requests will answer 503'}
+            {modelName ?? copy.noModel}
           </Text>
         </View>
 

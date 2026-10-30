@@ -1262,7 +1262,8 @@
     "benchmark": "Prueba de rendimiento",
     "settings": "Ajustes",
     "appInfo": "Información de la aplicación",
-    "testCompletion": "Prueba de finalización"
+    "testCompletion": "Prueba de finalización",
+    "apiServer": "API server"
   },
   "chat": {
     "conversationReset": "¡Conversación restablecida!",
@@ -1747,5 +1748,22 @@
       "subtitleTwo": "{{first}}, {{second}}",
       "subtitleMore": "{{first}}, {{second}} y más"
     }
+  },
+  "apiServer": {
+    "title": "API server",
+    "description": "Serves the model loaded in this app over HTTP, so other devices on the same Wi-Fi can use it — OpenAI-compatible endpoints plus a small chat page in the browser. Keep the app open while it is in use.",
+    "enable": "Enable",
+    "listening": "Listening on port {{port}}",
+    "stopped": "Stopped — nothing is listening",
+    "address": "Address",
+    "noAddressRunning": "No LAN IPv4 address found — is Wi-Fi connected?",
+    "noAddressStopped": "Turn the server on to see its address",
+    "tapToCopy": "tap to copy",
+    "openPage": "Open the chat page",
+    "endpoints": "Endpoints",
+    "clientHint": "Point any OpenAI-compatible client at {{baseUrl}} with any API key string.",
+    "model": "Model",
+    "noModel": "No model loaded — requests will answer 503",
+    "copied": "Address copied"
   }
 }
