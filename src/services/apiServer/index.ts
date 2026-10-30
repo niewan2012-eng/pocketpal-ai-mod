@@ -419,6 +419,36 @@ function toStop(body: ChatRequestBody): string[] | undefined {
   return Array.isArray(body.stop) ? body.stop : [body.stop];
 }
 
+/**
+ * llama.rn rejects a second completion while the context is still winding the
+ * previous one down ("Context is busy"). That window is a few hundred
+ * milliseconds after a reply ends, and a client polling the API walks straight
+ * into it, so retry once after asking the engine to stop.
+ */
+const BUSY = /Context is busy/i;
+
+async function retryOnceIfBusy<T>(
+  engine: {stopCompletion?: () => Promise<void>},
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!BUSY.test(message)) {
+      throw err;
+    }
+    console.warn('[apiServer] context busy, retrying once');
+    try {
+      await engine.stopCompletion?.();
+    } catch {
+      // ignore
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+    return await run();
+  }
+}
+
 async function handleCompletion(
   id: number,
   rawBody: string,
@@ -560,21 +590,30 @@ async function handleCompletion(
       // the raw token when the parser had nothing to say yet.
       let text = '';
       let sentContent = '';
-      const result = await engine.completion(params, data => {
-        let delta = '';
-        if (typeof data.content === 'string' && data.content.length > 0) {
-          delta = data.content.startsWith(sentContent)
-            ? data.content.slice(sentContent.length)
-            : data.content;
-          sentContent = data.content;
-        } else if (typeof data.token === 'string') {
-          delta = data.token;
-        }
-        if (delta) {
-          text += delta;
-          NativeApiServer?.writeStreamChunk(id, chunkOf({content: delta}));
-        }
-      });
+      let chunksSent = 0;
+      const runStream = () =>
+        engine.completion(params, data => {
+          let delta = '';
+          if (typeof data.content === 'string' && data.content.length > 0) {
+            delta = data.content.startsWith(sentContent)
+              ? data.content.slice(sentContent.length)
+              : data.content;
+            sentContent = data.content;
+          } else if (typeof data.token === 'string') {
+            delta = data.token;
+          }
+          if (delta) {
+            text += delta;
+            chunksSent++;
+            NativeApiServer?.writeStreamChunk(id, chunkOf({content: delta}));
+          }
+        });
+      // Retrying after chunks went out would duplicate them, so only an
+      // immediate failure (nothing written yet) is retried.
+      const result =
+        chunksSent === 0
+          ? await retryOnceIfBusy(engine, runStream)
+          : await runStream();
       if (!text && result.text) {
         NativeApiServer?.writeStreamChunk(id, chunkOf({content: result.text}));
       }
@@ -587,7 +626,9 @@ async function handleCompletion(
       return;
     }
 
-    const result = await engine.completion(params);
+    const result = await retryOnceIfBusy(engine, () =>
+      engine.completion(params),
+    );
     if (requestSeq !== myTurn) {
       NativeApiServer?.respond(
         id,

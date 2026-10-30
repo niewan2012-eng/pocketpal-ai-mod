@@ -69,6 +69,13 @@ export const WEB_PAGE_HTML = `<!doctype html>
   </form>
 </main>
 <script>
+// Anything thrown below would otherwise leave the header stuck on its
+// placeholder, which is indistinguishable from a hung request.
+window.addEventListener('error', e => {
+  const el = document.getElementById('model');
+  if (el) el.textContent = '脚本错误: ' + (e.message || 'unknown');
+});
+
 const log = document.getElementById('log');
 const form = document.getElementById('form');
 const input = document.getElementById('input');
@@ -152,7 +159,8 @@ function add(role, text) {
   return el;
 }
 
-fetch('/v1/models').then(r => r.json()).then(d => {
+const modelFetch = fetch('/v1/models', {signal: AbortSignal.timeout(8000)});
+modelFetch.then(r => r.json()).then(d => {
   const model = d?.data?.[0];
   if (!model) {
     modelLabel.textContent = '未加载模型';
@@ -208,7 +216,6 @@ async function sendMessage(text) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let streamDone = false;
       while (true) {
         const {done, value} = await reader.read();
         if (done) break;
@@ -236,11 +243,6 @@ async function sendMessage(text) {
       bubble.textContent = acc;
       lastFinish = data?.choices?.[0]?.finish_reason;
       lastUsage = data?.usage;
-    }
-        if (streamDone) {
-          break;
-        }
-      }
     }
 
     const secs = ((performance.now() - started) / 1000).toFixed(1);
