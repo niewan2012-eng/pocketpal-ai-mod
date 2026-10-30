@@ -1,0 +1,407 @@
+/**
+ * LAN API server: makes the model loaded in the app reachable over HTTP.
+ *
+ * Transport lives in Kotlin (`ApiServerModule`): it owns the socket and hands
+ * each parsed request over as an `ApiServerRequest` event, then writes whatever
+ * this module answers with. Everything below is routing and OpenAI-shaped
+ * translation, so a phone on the same Wi-Fi can talk to
+ * `http://<phone-ip>:8080/v1/chat/completions` with any OpenAI client, and a
+ * plain browser gets a small chat page at `/`.
+ *
+ * Endpoints:
+ *   GET  /                      chat page (self-contained HTML)
+ *   GET  /v1/models             the active model, OpenAI list shape
+ *   POST /v1/chat/completions   stream (SSE) and non-stream
+ *   GET  /health                liveness, for scripts
+ *   OPTIONS *                   CORS preflight
+ */
+
+import {DeviceEventEmitter} from 'react-native';
+
+import NativeApiServer, {
+  ApiServerInfo,
+  ApiServerRequestEvent,
+} from '../../specs/NativeApiServer';
+
+import {modelStore} from '../../store';
+import {WEB_PAGE_HTML} from './webPage';
+
+export const API_SERVER_PORT = 8080;
+
+type ChatMessage = {role: string; content: string};
+
+interface ChatRequestBody {
+  model?: string;
+  messages?: ChatMessage[];
+  prompt?: string;
+  stream?: boolean;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  stop?: string | string[];
+  [key: string]: unknown;
+}
+
+/** Wildcard CORS: this server is meant for the LAN, and the web page is same-origin. */
+const CORS_HEADERS = '';
+
+/** SSE frames are newline-terminated; keep the escaping out of every literal. */
+const NL = String.fromCharCode(10);
+
+let started = false;
+let lastInfo: ApiServerInfo = {running: false, port: 0, urls: []};
+let generating = false;
+
+export function getState(): ApiServerInfo {
+  return lastInfo;
+}
+
+export function isRunning(): boolean {
+  return started;
+}
+
+/** Start (or re-report) the server and return its LAN addresses. */
+export async function start(port = API_SERVER_PORT): Promise<ApiServerInfo> {
+  if (!NativeApiServer) {
+    throw new Error('API server is not available in this build');
+  }
+  const info = await NativeApiServer.start(port);
+  attach();
+  started = info.running;
+  lastInfo = info;
+  return info;
+}
+
+export async function stop(): Promise<void> {
+  detach();
+  await NativeApiServer?.stop();
+  started = false;
+  lastInfo = {...lastInfo, running: false};
+}
+
+async function refresh(): Promise<ApiServerInfo> {
+  const info = (await NativeApiServer?.getInfo()) ?? lastInfo;
+  lastInfo = info;
+  started = info.running;
+  return info;
+}
+
+let subscription: {remove: () => void} | null = null;
+
+function attach() {
+  if (subscription) {
+    return;
+  }
+  subscription = DeviceEventEmitter.addListener(
+    'ApiServerRequest',
+    (event: ApiServerRequestEvent) => {
+      handleRequest(event).catch(err => {
+        console.warn('[apiServer] request failed:', err);
+      });
+    },
+  );
+}
+
+function detach() {
+  subscription?.remove();
+  subscription = null;
+}
+
+async function handleRequest(event: ApiServerRequestEvent): Promise<void> {
+  const {id, method, path} = event;
+  const route = path.split('?')[0] ?? '/';
+
+  try {
+    if (method === 'OPTIONS') {
+      NativeApiServer?.respond(id, 204, 'text/plain', CORS_HEADERS);
+      return;
+    }
+
+    if (method === 'GET' && (route === '/' || route === '/index.html')) {
+      NativeApiServer?.respond(
+        id,
+        200,
+        'text/html; charset=utf-8',
+        WEB_PAGE_HTML,
+      );
+      return;
+    }
+
+    if (method === 'GET' && route === '/health') {
+      NativeApiServer?.respond(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({status: 'ok', model: activeModelId() ?? null}),
+      );
+      return;
+    }
+
+    if (method === 'GET' && (route === '/v1/models' || route === '/models')) {
+      NativeApiServer?.respond(
+        id,
+        200,
+        'application/json',
+        JSON.stringify(modelsPayload()),
+      );
+      return;
+    }
+
+    if (
+      method === 'POST' &&
+      (route === '/v1/chat/completions' ||
+        route === '/v1/completions' ||
+        route === '/chat/completions')
+    ) {
+      await handleCompletion(id, event.body, route);
+      return;
+    }
+
+    NativeApiServer?.respond(
+      id,
+      404,
+      'application/json',
+      JSON.stringify({
+        error: {message: `unknown route ${method} ${route}`},
+      }),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    NativeApiServer?.respond(
+      id,
+      500,
+      'application/json',
+      JSON.stringify({error: {message}}),
+    );
+  }
+}
+
+function activeModelId(): string | undefined {
+  return modelStore.activeModel?.name;
+}
+
+function modelsPayload() {
+  const id = activeModelId();
+  const created = Math.floor(Date.now() / 1000);
+  return {
+    object: 'list',
+    data: id ? [{id, object: 'model', created, owned_by: 'pocketpal-mod'}] : [],
+  };
+}
+
+function errorBody(message: string) {
+  return JSON.stringify({error: {message, type: 'invalid_request_error'}});
+}
+
+/** Messages from the request, or a single user turn from `prompt`. */
+function toMessages(body: ChatRequestBody): ChatMessage[] {
+  if (Array.isArray(body.messages) && body.messages.length > 0) {
+    return body.messages.map(m => ({
+      role: m.role,
+      content:
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    }));
+  }
+  if (typeof body.prompt === 'string') {
+    return [{role: 'user', content: body.prompt}];
+  }
+  return [];
+}
+
+function toStop(body: ChatRequestBody): string[] | undefined {
+  if (!body.stop) {
+    return undefined;
+  }
+  return Array.isArray(body.stop) ? body.stop : [body.stop];
+}
+
+async function handleCompletion(
+  id: number,
+  rawBody: string,
+  route: string,
+): Promise<void> {
+  let body: ChatRequestBody;
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    NativeApiServer?.respond(
+      id,
+      400,
+      'application/json',
+      errorBody('invalid JSON body'),
+    );
+    return;
+  }
+
+  const messages = toMessages(body);
+  if (messages.length === 0) {
+    NativeApiServer?.respond(
+      id,
+      400,
+      'application/json',
+      errorBody('messages is required'),
+    );
+    return;
+  }
+
+  const context = modelStore.context;
+  const engine = modelStore.engine;
+  if (!context || !engine) {
+    NativeApiServer?.respond(
+      id,
+      503,
+      'application/json',
+      errorBody('no model loaded in the app'),
+    );
+    return;
+  }
+
+  if (generating) {
+    NativeApiServer?.respond(
+      id,
+      429,
+      'application/json',
+      errorBody('another request is being generated'),
+    );
+    return;
+  }
+
+  generating = true;
+  /** Set once the SSE headers are written; the catch block needs it. */
+  let streamOpened = false;
+  const created = Math.floor(Date.now() / 1000);
+  const completionId = `chatcmpl-${created}-${id}`;
+  const model = activeModelId() ?? body.model ?? 'pocketpal';
+
+  try {
+    // The model's own chat template, exactly like the in-app chat path.
+    const formatted = await context.getFormattedChat(messages, null, {
+      jinja: true,
+    });
+    const prompt = typeof formatted === 'string' ? formatted : formatted.prompt;
+
+    const params = {
+      prompt,
+      n_predict: body.max_tokens ?? 512,
+      temperature: body.temperature ?? 0.8,
+      top_p: body.top_p ?? 0.95,
+      stop:
+        toStop(body) ??
+        (typeof formatted === 'string'
+          ? undefined
+          : (formatted as {additional_stops?: string[]}).additional_stops),
+    };
+
+    const wantsStream = body.stream === true;
+    const chunkOf = (delta: Record<string, unknown>, finish?: string) =>
+      `data: ${JSON.stringify({
+        id: completionId,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [{index: 0, delta, finish_reason: finish ?? null}],
+      })}\n\n`;
+
+    if (wantsStream) {
+      const opened = NativeApiServer?.beginStream(
+        id,
+        200,
+        'text/event-stream; charset=utf-8',
+      );
+      if (!opened) {
+        return;
+      }
+      streamOpened = true;
+      NativeApiServer?.writeStreamChunk(
+        id,
+        chunkOf({role: 'assistant', content: ''}),
+      );
+      let text = '';
+      const result = await engine.completion(params, data => {
+        const piece = data.content ?? data.token ?? '';
+        if (piece) {
+          text += piece;
+          NativeApiServer?.writeStreamChunk(id, chunkOf({content: piece}));
+        }
+      });
+      if (!text && result.text) {
+        NativeApiServer?.writeStreamChunk(id, chunkOf({content: result.text}));
+      }
+      NativeApiServer?.writeStreamChunk(id, chunkOf({}, 'stop'));
+      NativeApiServer?.writeStreamChunk(id, 'data: [DONE]\n\n');
+      NativeApiServer?.endStream(id);
+      return;
+    }
+
+    const result = await engine.completion(params);
+    const content = result.content ?? result.text ?? '';
+    const payload =
+      route === '/v1/completions'
+        ? {
+            id: completionId,
+            object: 'text_completion',
+            created,
+            model,
+            choices: [{index: 0, text: content, finish_reason: 'stop'}],
+            usage: {
+              prompt_tokens: result.tokens_evaluated ?? 0,
+              completion_tokens: result.tokens_predicted ?? 0,
+              total_tokens:
+                (result.tokens_evaluated ?? 0) + (result.tokens_predicted ?? 0),
+            },
+          }
+        : {
+            id: completionId,
+            object: 'chat.completion',
+            created,
+            model,
+            choices: [
+              {
+                index: 0,
+                message: {role: 'assistant', content},
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: result.tokens_evaluated ?? 0,
+              completion_tokens: result.tokens_predicted ?? 0,
+              total_tokens:
+                (result.tokens_evaluated ?? 0) + (result.tokens_predicted ?? 0),
+            },
+          };
+    NativeApiServer?.respond(
+      id,
+      200,
+      'application/json',
+      JSON.stringify(payload),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Once the SSE headers are out the status line is already sent: report the
+    // failure as a final event and close, instead of pretending it was a 500.
+    if (streamOpened) {
+      try {
+        NativeApiServer?.writeStreamChunk(
+          id,
+          `data: ${JSON.stringify({error: {message}})}` + NL + NL,
+        );
+        NativeApiServer?.writeStreamChunk(id, 'data: [DONE]' + NL + NL);
+      } finally {
+        NativeApiServer?.endStream(id);
+      }
+    } else {
+      NativeApiServer?.respond(id, 500, 'application/json', errorBody(message));
+    }
+  } finally {
+    generating = false;
+  }
+}
+
+/** Best-effort: report the current state without changing it. */
+export async function syncState(): Promise<ApiServerInfo> {
+  try {
+    return await refresh();
+  } catch {
+    return lastInfo;
+  }
+}

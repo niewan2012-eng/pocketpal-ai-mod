@@ -36,7 +36,6 @@ import {
   modelStore,
   palStore,
   uiStore,
-  voiceModeStore,
 } from '../../store';
 
 import {MessageType} from '../../utils/types';
@@ -50,7 +49,6 @@ import {
   VoiceChip,
   MicButton,
   VoiceRecordingBar,
-  VoiceModeButton,
 } from '..';
 
 export interface ChatInputTopLevelProps {
@@ -92,9 +90,7 @@ export interface ChatInputTopLevelProps {
   appendTranscript?: (text: string) => void;
   /**
    * Opens voice mode; the empty composer then shows the voice button.
-   * `focusInput` puts the cursor back in this composer.
    */
-  onVoicePress?: (focusInput: () => void) => void;
   /** Whether the model supports graded reasoning effort (axis 2) */
   supportsEffort?: boolean;
   /** The graded effort value set, e.g. ['low','medium','high'] */
@@ -163,7 +159,6 @@ export const ChatInput = observer(
     isThinkingEnabled = false,
     onThinkingToggle,
     appendTranscript,
-    onVoicePress,
     supportsEffort = false,
     effortValues = [],
     reasoningEffort,
@@ -173,7 +168,6 @@ export const ChatInput = observer(
     const theme = useTheme();
     const user = React.useContext(UserContext);
     const inputRef = React.useRef<TextInputInstance>(null);
-    const focusInput = React.useCallback(() => inputRef.current?.focus(), []);
     const editBarHeight = React.useRef(new Animated.Value(0)).current;
     const iconRotation = React.useRef(new Animated.Value(0)).current;
     const activePalId = chatSessionStore.activePalId;
@@ -398,15 +392,6 @@ export const ChatInput = observer(
       (sendButtonVisibilityMode === 'always' || value.trim());
     const isSendButtonEnabled =
       value.trim().length > 0 && hasActiveModel && !isStopping;
-    const isVoiceModeButtonVisible =
-      !!onVoicePress &&
-      voiceModeStore.supported &&
-      !value.trim() &&
-      selectedImages.length === 0 &&
-      !isEditMode &&
-      !isVideoCapable &&
-      !isStopVisible &&
-      !isVoiceCaptureActive;
     const sendButtonOpacity = isSendButtonEnabled ? 1 : 0.4;
 
     const rotateInterpolate = iconRotation.interpolate({
@@ -743,8 +728,6 @@ export const ChatInput = observer(
                       {l10n.video.startCamera}
                     </Text>
                   </TouchableOpacity>
-                ) : isVoiceModeButtonVisible ? (
-                  <VoiceModeButton onPress={() => onVoicePress?.(focusInput)} />
                 ) : (
                   isSendButtonVisible && (
                     <View

@@ -315,7 +315,6 @@ export const ChatScreen: React.FC = observer(() => {
           isVisionEnabled={visionEnabled}
           initialInputText={pendingMessage || undefined}
           onInitialTextConsumed={clearPendingMessage}
-          onVoiceModePress={voiceMode.requestEntry}
           inputProps={{
             showThinkingToggle: thinkingSupported,
             isThinkingEnabled: thinkingEnabled,

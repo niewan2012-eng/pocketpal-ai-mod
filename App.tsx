@@ -40,7 +40,6 @@ import {
   DownloadOverlay,
   HubRunSheetHost,
   PlusA11yScope,
-  PlusHost,
 } from './src/components';
 import {MarkdownProvider} from './src/components/MarkdownView';
 import {
@@ -56,6 +55,7 @@ import {
   SettingsScreen,
   BenchmarkScreen,
   AboutScreen,
+  ApiServerScreen,
 
   // Dev tools screen. Only available in debug mode.
   DevToolsScreen,
@@ -201,6 +201,14 @@ const App = observer(() => {
                               }}
                             />
                             <Drawer.Screen
+                              name={ROUTES.API_SERVER}
+                              component={gestureHandlerRootHOC(ApiServerScreen)}
+                              options={{
+                                headerStyle: styles.headerWithoutDivider,
+                                title: 'API 服务',
+                              }}
+                            />
+                            <Drawer.Screen
                               name={ROUTES.APP_INFO}
                               component={gestureHandlerRootHOC(AboutScreen)}
                               options={{
@@ -265,7 +273,6 @@ const App = observer(() => {
                       <HubRunSheetHost />
                     </BottomSheetModalProvider>
                   </PlusA11yScope>
-                  <PlusHost />
                 </NavigationContainer>
               </MarkdownProvider>
             </L10nContext.Provider>

@@ -12,6 +12,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
+import com.pocketpal.ApiServerPackage
 import com.pocketpal.KeepAwakePackage
 import com.pocketpal.HardwareInfoPackage
 import com.pocketpal.NavigationBarPackage
@@ -29,6 +30,7 @@ class MainApplication : Application(), ReactApplication {
               add(HardwareInfoPackage())
               add(DownloadPackage())
               add(NavigationBarPackage())
+              add(ApiServerPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"
