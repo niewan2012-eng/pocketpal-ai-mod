@@ -53,16 +53,6 @@ export const FilterChips: React.FC<FilterChipsProps> = observer(
         label: PAL_FILTER_LABELS.video,
         showWhenUnauthenticated: true,
       },
-      {
-        key: 'free',
-        label: PAL_FILTER_LABELS.free,
-        showWhenUnauthenticated: true,
-      },
-      {
-        key: 'premium',
-        label: PAL_FILTER_LABELS.premium,
-        showWhenUnauthenticated: true,
-      },
     ];
 
     const visibleFilters = filterOptions.filter(

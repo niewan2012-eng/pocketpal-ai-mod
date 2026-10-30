@@ -20,7 +20,7 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 
-import {asrStore, purchaseStore, ttsStore, uiStore} from './src/store';
+import {asrStore, ttsStore, uiStore} from './src/store';
 import {useTheme} from './src/hooks';
 import {useDeepLinking} from './src/hooks/useDeepLinking';
 import {useNavigationBarAppearance} from './src/hooks/useNavigationBarAppearance';
@@ -129,12 +129,6 @@ const App = observer(() => {
     restoreApiServer().catch(() => {
       // restore() already swallows; catch keeps the promise chain explicit.
     });
-  }, []);
-
-  React.useEffect(() => {
-    purchaseStore
-      .start(__E2E__ ? {store: fakeStore, beforeInit: fakeStore.restore} : {})
-      .catch(error => console.warn('Purchase recovery failed:', error));
   }, []);
 
   return (

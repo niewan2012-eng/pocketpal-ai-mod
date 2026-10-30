@@ -155,12 +155,118 @@ async function handleRequest(event: ApiServerRequestEvent): Promise<void> {
       return;
     }
 
+    if (
+      method === 'POST' &&
+      (route === '/admin/vision' || route === '/v1/admin/vision')
+    ) {
+      // The app gates the image picker AND initMultimodal on a per-model
+      // preference. When it is off, the button goes grey with no explanation,
+      // which is indistinguishable from "this app cannot do images". This lets
+      // a client (or a script) put it right without hunting for the eye icon.
+      const active = modelStore.activeModel;
+      if (!active) {
+        NativeApiServer?.respond(
+          id,
+          409,
+          'application/json',
+          errorBody('no model loaded'),
+        );
+        return;
+      }
+      let enabled = true;
+      try {
+        const parsed = JSON.parse(event.body || '{}') as {enabled?: boolean};
+        enabled = parsed.enabled !== false;
+      } catch {
+        // Empty/!JSON body means "enable".
+      }
+      if (!active.supportsMultimodal) {
+        NativeApiServer?.respond(
+          id,
+          409,
+          'application/json',
+          errorBody('this model has no multimodal support to enable'),
+        );
+        return;
+      }
+      // setModelVisionEnabled() already reloads the context when the preference
+      // actually changes; reloading again here tore the fresh context down.
+      await modelStore.setModelVisionEnabled(active.id, enabled);
+      if (!modelStore.context && modelStore.activeModelId === active.id) {
+        await modelStore.initContext(modelStore.activeModel ?? active);
+      }
+      const projection = modelStore.models.find(
+        m => m.id === (modelStore.activeModel ?? active).defaultProjectionModel,
+      );
+      NativeApiServer?.respond(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({
+          enabled,
+          visionActive: modelStore.isMultimodalActive === true,
+          projectionDownloaded: projection?.isDownloaded ?? false,
+        }),
+      );
+      return;
+    }
+
+    if (method === 'GET' && route === '/debug/state') {
+      // Answers "why can't this model see my image": the app needs a downloaded
+      // projector that is paired with the active model, not just a VLM file.
+      const active = modelStore.activeModel;
+      const projectionId = modelStore.activeProjectionModelId;
+      const projection = modelStore.models.find(m => m.id === projectionId);
+      NativeApiServer?.respond(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({
+          model: active
+            ? {
+                id: active.name,
+                supportsMultimodal: active.supportsMultimodal === true,
+                defaultProjectionModel: active.defaultProjectionModel ?? null,
+              }
+            : null,
+          vision: {
+            active: modelStore.isMultimodalActive === true,
+            // What resolveMultimodalConfig() requires: a recorded projection
+            // model, downloaded, and vision not switched off for this model.
+            pairedProjectionModelId: active?.defaultProjectionModel ?? null,
+            pairedProjectionInModelList: Boolean(
+              active?.defaultProjectionModel &&
+                modelStore.models.find(
+                  m => m.id === active.defaultProjectionModel,
+                ),
+            ),
+            pairedProjectionDownloaded: Boolean(
+              active?.defaultProjectionModel &&
+                modelStore.models.find(
+                  m => m.id === active.defaultProjectionModel,
+                )?.isDownloaded,
+            ),
+            visionEnabledPreference: active
+              ? modelStore.getModelVisionPreference(active)
+              : false,
+            projectionModelId: projectionId ?? null,
+            projectionDownloaded: projection?.isDownloaded ?? false,
+          },
+        }),
+      );
+      return;
+    }
+
     if (method === 'GET' && route === '/health') {
       NativeApiServer?.respond(
         id,
         200,
         'application/json',
-        JSON.stringify({status: 'ok', model: activeModelId() ?? null}),
+        JSON.stringify({
+          status: 'ok',
+          model: activeModelId() ?? null,
+          vision: modelStore.isMultimodalActive === true,
+        }),
       );
       return;
     }
@@ -213,7 +319,19 @@ function modelsPayload() {
   const created = Math.floor(Date.now() / 1000);
   return {
     object: 'list',
-    data: id ? [{id, object: 'model', created, owned_by: 'pocketpal-mod'}] : [],
+    data: id
+      ? [
+          {
+            id,
+            object: 'model',
+            created,
+            owned_by: 'pocketpal-mod',
+            // Not part of the OpenAI schema, but the one thing a client cannot
+            // otherwise discover before sending an image.
+            capabilities: {vision: modelStore.isMultimodalActive === true},
+          },
+        ]
+      : [],
   };
 }
 

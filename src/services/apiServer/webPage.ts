@@ -61,6 +61,7 @@ export const WEB_PAGE_HTML = `<!doctype html>
       <input id="file" type="file" accept="image/*" multiple hidden />
     </label>
     <span class="hint">图片会先缩放到 1024px 再发送</span>
+    <span class="hint" id="visionHint" style="display:none">当前模型不支持看图，请先在 App 里换一个带 mmproj 的视觉模型</span>
   </div>
   <form id="form">
     <textarea id="input" placeholder="输入内容，Enter 发送，Shift+Enter 换行"></textarea>
@@ -152,8 +153,19 @@ function add(role, text) {
 }
 
 fetch('/v1/models').then(r => r.json()).then(d => {
-  const id = d?.data?.[0]?.id;
-  modelLabel.textContent = id ? ('模型: ' + id) : '未加载模型';
+  const model = d?.data?.[0];
+  if (!model) {
+    modelLabel.textContent = '未加载模型';
+    return;
+  }
+  const vision = model.capabilities?.vision === true;
+  modelLabel.textContent =
+    '模型: ' + model.id + ' · 视觉: ' + (vision ? '✓ 可看图' : '✗ 当前未启用');
+  // Keep the picker visible either way: the app can enable vision after this
+  // page was loaded, and hiding it made that look like a missing feature.
+  document.getElementById('visionHint').style.display = vision
+    ? 'none'
+    : 'inline';
 }).catch(() => { modelLabel.textContent = '无法读取模型信息'; });
 
 async function sendMessage(text) {

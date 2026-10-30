@@ -6,7 +6,7 @@ import {
   RefreshControl,
   useWindowDimensions,
 } from 'react-native';
-import {Button, Text} from 'react-native-paper';
+import {Text} from 'react-native-paper';
 import {observer} from 'mobx-react-lite';
 
 import {PlusIcon} from '../../assets/icons';
@@ -24,19 +24,17 @@ import type {PalGridItem} from './palGridLayout';
 import {
   BottomActionBar,
   BottomActionType,
-  CompactAuthBar,
   ExpandableSearch,
   FilterChips,
   FilterType,
   PalGridRow,
-  ProfileSheet,
 } from './components';
 
 import {SectionDivider} from '../../components/PalsSheets/SectionDivider';
 
 // Unified pal sheet component
 import {PalSheet} from '../../components/PalsSheets';
-import {AuthSheet, PalDetailSheet} from '../../components/PalsHub';
+import {PalDetailSheet} from '../../components/PalsHub';
 
 // Pal template factories
 import {
@@ -89,8 +87,6 @@ export const PalsScreen: React.FC = observer(() => {
   const [searchResults, setSearchResults] = useState<PalsHubPal[]>([]);
 
   // Sheet states
-  const [showProfile, setShowProfile] = useState(false);
-  const [showAuth, setShowAuth] = useState(false);
   const [showPalDetail, setShowPalDetail] = useState(false);
   const [selectedPal, setSelectedPal] = useState<PalsHubPal | null>(null);
 
@@ -100,9 +96,6 @@ export const PalsScreen: React.FC = observer(() => {
 
   // Loading state
   const [refreshing, setRefreshing] = useState(false);
-
-  // Auth bar state
-  const [showAuthBar, setShowAuthBar] = useState(true);
 
   useEffect(() => {
     const runInitialSetup = async () => {
@@ -182,13 +175,6 @@ export const PalsScreen: React.FC = observer(() => {
       case 'search':
         setIsSearchExpanded(!isSearchExpanded);
         break;
-      case 'profile':
-        if (authService.isAuthenticated) {
-          setShowProfile(true);
-        } else {
-          setShowAuth(true);
-        }
-        break;
     }
   };
 
@@ -240,31 +226,21 @@ export const PalsScreen: React.FC = observer(() => {
 
     const localPals = palStore.getLocalPals();
     const downloadedPals = palStore.getDownloadedPalsHubPals();
-    const hubPals = palStore.cachedPalsHubPals;
 
+    // Fork: no PalsHub search or marketplace, so every filter resolves to what
+    // is on this device.
     switch (activeFilter) {
-      case 'my-pals': {
-        const {installed, purchased, library} = ownedPals();
-        return [...installed, ...purchased, ...library];
-      }
-      case 'local':
-        return [...localPals, ...downloadedPals];
       case 'video':
         return [
           ...localPals.filter(p => hasVideoCapability(p)),
           ...downloadedPals.filter(p => hasVideoCapability(p)),
-          ...hubPals.filter(p =>
-            p.categories?.some(c => c.name.toLowerCase().includes('video')),
-          ),
         ];
-      case 'free':
-        return [...localPals, ...hubPals.filter(p => p.price_cents === 0)];
-      case 'premium':
-        return hubPals.filter(p => p.price_cents > 0);
+      case 'local':
+      case 'my-pals':
       case 'all':
       default: {
-        const {installed, purchased, library} = ownedPals();
-        return [...installed, ...purchased, ...library, ...hubPals];
+        const {installed} = ownedPals();
+        return [...installed];
       }
     }
   };
@@ -277,30 +253,18 @@ export const PalsScreen: React.FC = observer(() => {
       return [{title: '', data: searchResults}];
     }
 
-    const hubPals = palStore.cachedPalsHubPals;
-
     switch (activeFilter) {
       case 'all':
       case 'my-pals': {
         const sections: Array<{title: string; data: (PalsHubPal | Pal)[]}> = [];
-        const {installed, purchased, library} = ownedPals();
+        // Fork: local Pals only. The PalsHub library and the discover grid both
+        // need an account, and accounts are gone from this build.
+        const {installed} = ownedPals();
 
-        if (installed.length + purchased.length > 0) {
+        if (installed.length > 0) {
           sections.push({
             title: l10n.palsScreen.sectionTitles.myPalsLocal,
-            data: [...installed, ...purchased],
-          });
-        }
-        if (library.length > 0) {
-          sections.push({
-            title: l10n.palsScreen.sectionTitles.myLibrary,
-            data: library,
-          });
-        }
-        if (activeFilter === 'all' && hubPals.length > 0) {
-          sections.push({
-            title: l10n.palsScreen.sectionTitles.discoverPals,
-            data: hubPals,
+            data: installed,
           });
         }
 
@@ -323,19 +287,6 @@ export const PalsScreen: React.FC = observer(() => {
     </View>
   );
 
-  const restoreRow =
-    purchaseStore.availability === 'ready' ? (
-      <Button
-        testID="restore-purchases-row"
-        mode="text"
-        onPress={() => purchaseStore.restore()}
-        loading={purchaseStore.isRestoring}
-        disabled={purchaseStore.isRestoring}
-        style={styles.restoreRow}>
-        {l10n.palsScreen.purchase.restorePurchases}
-      </Button>
-    ) : undefined;
-
   const {columns, cardWidth} = computePalGridLayout(windowWidth);
   const filteredData = getFilteredData();
   const rows = chunkIntoRows(filteredData, columns);
@@ -346,16 +297,6 @@ export const PalsScreen: React.FC = observer(() => {
 
   return (
     <View style={styles.container}>
-      {/* Compact Auth Bar - Only for unauthenticated users and when not dismissed */}
-      {!authService.isAuthenticated && showAuthBar && (
-        <CompactAuthBar
-          isAuthenticated={authService.isAuthenticated}
-          onSignInPress={() => setShowAuth(true)}
-          onProfilePress={() => setShowProfile(true)}
-          onDismiss={() => setShowAuthBar(false)}
-        />
-      )}
-
       {/* Expandable Search */}
       <ExpandableSearch
         isExpanded={isSearchExpanded}
@@ -394,7 +335,6 @@ export const PalsScreen: React.FC = observer(() => {
                   onUpdatePress={handleUpdatePress}
                 />
               ))}
-          {restoreRow}
         </ScrollView>
       ) : (
         <FlatList
@@ -410,7 +350,6 @@ export const PalsScreen: React.FC = observer(() => {
           )}
           contentContainerStyle={styles.listContainer}
           ListEmptyComponent={renderEmptyState}
-          ListFooterComponent={restoreRow}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -433,34 +372,11 @@ export const PalsScreen: React.FC = observer(() => {
 
       {/* Sheets */}
 
-      {/* Profile Sheet */}
-      {showProfile && (
-        <ProfileSheet
-          isVisible={showProfile}
-          onClose={() => setShowProfile(false)}
-          onSignInPress={() => setShowAuth(true)}
-        />
-      )}
-
-      {/* Auth Sheet */}
-      {showAuth && (
-        <AuthSheet
-          isVisible={showAuth}
-          onClose={() => {
-            setShowAuth(false);
-            if (!authService.isAuthenticated) {
-              purchaseStore.cancelLinkRequest();
-            }
-          }}
-        />
-      )}
-
       {/* Palhub's Pal Detail Sheet */}
       {selectedPal && (
         <PalDetailSheet
           isVisible={showPalDetail}
           pal={selectedPal}
-          onSignInPress={() => setShowAuth(true)}
           onClose={() => {
             setShowPalDetail(false);
             setSelectedPal(null);

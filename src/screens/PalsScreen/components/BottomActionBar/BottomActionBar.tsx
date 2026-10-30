@@ -5,7 +5,7 @@ import {Text} from 'react-native-paper';
 import {observer} from 'mobx-react-lite';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import {SearchIcon, UserIcon} from '../../../../assets/icons';
+import {SearchIcon} from '../../../../assets/icons';
 
 import {useTheme} from '../../../../hooks';
 import {L10nContext} from '../../../../utils';
@@ -52,7 +52,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
 };
 
 export const BottomActionBar: React.FC<BottomActionBarProps> = observer(
-  ({onActionPress, onCreatePal, isAuthenticated}) => {
+  ({onActionPress, onCreatePal}) => {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const styles = createStyles(theme, insets);
@@ -84,19 +84,6 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = observer(
             iconColor={iconColor}
             iconSize={iconSize}
             onCreatePal={onCreatePal}
-          />
-
-          {/* Profile */}
-          <ActionButton
-            action="profile"
-            label={
-              isAuthenticated ? l10n.palsScreen.profile : l10n.palsScreen.signIn
-            }
-            icon={
-              <UserIcon stroke={iconColor} width={iconSize} height={iconSize} />
-            }
-            isActive={false}
-            onPress={() => onActionPress('profile')}
           />
         </View>
       </View>
