@@ -1764,7 +1764,13 @@
     "clientHint": "任何 OpenAI 兼容客户端都可以连接：Base URL 填 {{baseUrl}}，API Key 随便填。",
     "model": "当前模型",
     "noModel": "未加载模型，请求会返回 503",
-    "copied": "地址已复制"
+    "copied": "地址已复制",
+    "defaultsTitle": "回复默认值",
+    "maxTokens": "最大回复长度",
+    "maxTokensHint": "每次回复的 token 上限，-1 = 直到模型自己结束（与应用内一致）",
+    "temperature": "温度",
+    "temperatureHint": "越大越随机；请求里自带参数时以请求为准",
+    "saved": "已保存"
   },
   "keepAlive": {
     "title": "后台运行",

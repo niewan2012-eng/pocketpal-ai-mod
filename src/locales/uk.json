@@ -1832,7 +1832,13 @@
     "clientHint": "Point any OpenAI-compatible client at {{baseUrl}} with any API key string.",
     "model": "Model",
     "noModel": "No model loaded — requests will answer 503",
-    "copied": "Address copied"
+    "copied": "Address copied",
+    "defaultsTitle": "Response defaults",
+    "maxTokens": "Max reply length",
+    "maxTokensHint": "Tokens per reply, -1 = until the model stops on its own (app default)",
+    "temperature": "Temperature",
+    "temperatureHint": "Higher is more random; clients can still send their own",
+    "saved": "Saved"
   },
   "keepAlive": {
     "title": "Keep running",

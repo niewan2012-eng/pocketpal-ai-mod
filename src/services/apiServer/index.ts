@@ -27,9 +27,15 @@ import NativeApiServer, {
 
 import {modelStore} from '../../store';
 import * as keepAlive from '../keepAlive';
+import {getDefaults, loadDefaults} from './settings';
 import {WEB_PAGE_HTML} from './webPage';
 
 export const API_SERVER_PORT = 8080;
+export {
+  DEFAULT_API_SERVER_DEFAULTS,
+  getDefaults,
+  setDefaults,
+} from './settings';
 
 /**
  * The preference outlives the process: starting a server to serve the LAN is a
@@ -85,6 +91,7 @@ export async function start(port = API_SERVER_PORT): Promise<ApiServerInfo> {
   if (!NativeApiServer) {
     throw new Error('API server is not available in this build');
   }
+  await loadDefaults();
   const info = await NativeApiServer.start(port);
   attach();
   // Serving over the network and releasing the model when the app goes to the
@@ -500,7 +507,9 @@ async function handleCompletion(
     formatted = await context.getFormattedChat(preparedMessages, null, {
       jinja: true,
       enable_thinking: enableThinking,
-      reasoning_format: enableThinking ? 'auto' : 'none',
+      // 'auto' keeps reasoning out of `content` even when the model thinks;
+      // 'none' leaked raw thinking into the answer.
+      reasoning_format: 'auto',
     });
     const prompt = typeof formatted === 'string' ? formatted : formatted.prompt;
 
@@ -509,11 +518,11 @@ async function handleCompletion(
     const params = {
       prompt,
       ...(mediaPaths && mediaPaths.length > 0 ? {media_paths: mediaPaths} : {}),
-      // Reasoning models spend their budget on thinking first; 512 was not
-      // enough for one answer on Qwen3.5.
-      n_predict: body.max_tokens ?? 1024,
+      // Client value wins; otherwise the server's configured default, whose
+      // factory value is -1 (until EOS) like the app's own.
+      n_predict: body.max_tokens ?? getDefaults().maxTokens,
       enable_thinking: enableThinking,
-      temperature: body.temperature ?? 0.8,
+      temperature: body.temperature ?? getDefaults().temperature,
       top_p: body.top_p ?? 0.95,
       stop:
         toStop(body) ??
@@ -629,6 +638,16 @@ async function handleCompletion(
               completion_tokens: result.tokens_predicted ?? 0,
               total_tokens:
                 (result.tokens_evaluated ?? 0) + (result.tokens_predicted ?? 0),
+            },
+            // Non-standard, and the point of it: "it stopped early" needs the
+            // reason attached, not guessed from finish_reason.
+            pocketpal: {
+              finish_reason: finishReason,
+              stopped_word: result.stopped_word ?? false,
+              stopping_word: result.stopping_word ?? null,
+              context_full: result.context_full ?? false,
+              truncated: result.truncated ?? false,
+              reasoning_chars: (reasoning ?? '').length,
             },
           };
     NativeApiServer?.respond(

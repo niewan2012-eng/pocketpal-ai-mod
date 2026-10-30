@@ -14,6 +14,7 @@ import {
   Divider,
   Switch,
   Text,
+  TextInput,
 } from 'react-native-paper';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
@@ -21,8 +22,10 @@ import {GlobeIcon} from '../../assets/icons';
 import {useTheme} from '../../hooks';
 import {
   API_SERVER_PORT,
+  getDefaults,
   getState,
   isRunning,
+  setDefaults,
   start,
   stop,
   syncState,
@@ -50,6 +53,12 @@ export const ApiServerScreen: React.FC = observer(() => {
   const [port, setPort] = useState<number>(getState().port || API_SERVER_PORT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const defaults = getDefaults();
+  const [maxTokens, setMaxTokensText] = useState(String(defaults.maxTokens));
+  const [temperature, setTemperatureText] = useState(
+    String(defaults.temperature),
+  );
+  const [savedHint, setSavedHint] = useState(false);
 
   useEffect(() => {
     syncState()
@@ -82,6 +91,22 @@ export const ApiServerScreen: React.FC = observer(() => {
       setBusy(false);
     }
   }, []);
+
+  const commitDefaults = useCallback(() => {
+    const parsedMax = Number(maxTokens.trim());
+    const parsedTemp = Number(temperature.trim());
+    setDefaults({
+      maxTokens: Number.isFinite(parsedMax) ? parsedMax : -1,
+      temperature: Number.isFinite(parsedTemp) ? parsedTemp : 0.7,
+    })
+      .then(next => {
+        // Reflect what was stored, so "-1" vs "empty" is never ambiguous.
+        setMaxTokensText(String(next.maxTokens));
+        setTemperatureText(String(next.temperature));
+        setSavedHint(true);
+      })
+      .catch(() => {});
+  }, [maxTokens, temperature]);
 
   const primaryUrl = urls[0];
   const modelName = modelStore.activeModel?.name;
@@ -163,6 +188,39 @@ export const ApiServerScreen: React.FC = observer(() => {
         <Divider />
 
         <View style={styles.section}>
+          <Text variant="bodyLarge">{copy.defaultsTitle}</Text>
+          <TextInput
+            testID="api-server-max-tokens"
+            mode="outlined"
+            dense
+            keyboardType="numbers-and-punctuation"
+            label={copy.maxTokens}
+            value={maxTokens}
+            onChangeText={setMaxTokensText}
+            onBlur={() => commitDefaults()}
+            style={styles.input}
+          />
+          <Text style={styles.rowHint}>{copy.maxTokensHint}</Text>
+          <TextInput
+            testID="api-server-temperature"
+            mode="outlined"
+            dense
+            keyboardType="decimal-pad"
+            label={copy.temperature}
+            value={temperature}
+            onChangeText={setTemperatureText}
+            onBlur={() => commitDefaults()}
+            style={styles.input}
+          />
+          <Text style={styles.rowHint}>{copy.temperatureHint}</Text>
+          {savedHint ? (
+            <Text style={styles.rowHint}>{copy.saved} ✓</Text>
+          ) : null}
+        </View>
+
+        <Divider />
+
+        <View style={styles.section}>
           <Text variant="bodyLarge">{copy.model}</Text>
           <Text style={modelName ? styles.mono : styles.rowHint}>
             {modelName ?? copy.noModel}
@@ -201,6 +259,7 @@ const createStyles = (theme: Theme) =>
     url: {fontFamily: 'monospace', fontSize: 14},
     copyHint: {color: theme.colors.onSurfaceVariant, fontSize: 11},
     mono: {fontFamily: 'monospace', fontSize: 13},
+    input: {backgroundColor: 'transparent'},
     button: {marginTop: 6, alignSelf: 'flex-start'},
     error: {color: theme.colors.error},
   });

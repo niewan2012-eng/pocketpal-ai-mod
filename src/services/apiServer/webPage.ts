@@ -202,10 +202,13 @@ async function sendMessage(text) {
       return;
     }
     let acc = '';
+    let lastFinish = null;
+    let lastUsage = null;
     if (streamBox.checked) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let streamDone = false;
       while (true) {
         const {done, value} = await reader.read();
         if (done) break;
@@ -219,8 +222,11 @@ async function sendMessage(text) {
           if (data === '[DONE]') continue;
           try {
             const parsed = JSON.parse(data);
-            const delta = parsed?.choices?.[0]?.delta?.content;
+            const choice = parsed?.choices?.[0];
+            const delta = choice?.delta?.content;
             if (delta) { acc += delta; bubble.textContent = acc; }
+            if (choice?.finish_reason) lastFinish = choice.finish_reason;
+            if (parsed?.usage) lastUsage = parsed.usage;
           } catch (e) { /* keepalive or partial */ }
         }
       }
@@ -228,11 +234,28 @@ async function sendMessage(text) {
       const data = await res.json();
       acc = data?.choices?.[0]?.message?.content ?? '';
       bubble.textContent = acc;
+      lastFinish = data?.choices?.[0]?.finish_reason;
+      lastUsage = data?.usage;
     }
+        if (streamDone) {
+          break;
+        }
+      }
+    }
+
     const secs = ((performance.now() - started) / 1000).toFixed(1);
     const meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = secs + ' s';
+    const parts = [secs + ' s'];
+    if (lastUsage?.completion_tokens) {
+      parts.push(lastUsage.completion_tokens + ' tokens');
+    }
+    if (lastFinish === 'length') {
+      parts.push('⚠️ 达到长度上限，回答被截断');
+    } else if (lastFinish) {
+      parts.push('finish: ' + lastFinish);
+    }
+    meta.textContent = parts.join(' · ');
     bubble.appendChild(meta);
     history.push({role: 'assistant', content: acc});
   } catch (e) {
