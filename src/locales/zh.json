@@ -1765,5 +1765,14 @@
     "model": "当前模型",
     "noModel": "未加载模型，请求会返回 503",
     "copied": "地址已复制"
+  },
+  "keepAlive": {
+    "title": "后台运行",
+    "screenOffTitle": "熄屏后继续运行",
+    "screenOffDescription": "持有唤醒锁、高性能 Wi-Fi 锁和前台服务，使模型推理与 API 服务在熄屏或切到后台后仍然工作（运行时会显示一条常驻通知）。（API 服务运行期间会自动保持后台运行）",
+    "batteryTitle": "忽略电池优化",
+    "batteryAllowed": "系统不会因省电而冻结本应用。",
+    "batteryBlocked": "熄屏后系统仍可能因省电而冻结本应用。",
+    "batteryButton": "去允许"
   }
 }

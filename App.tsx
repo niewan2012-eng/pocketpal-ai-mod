@@ -30,6 +30,7 @@ import {l10n, initLocale} from './src/locales';
 import {L10nContext} from './src/utils';
 import {ROUTES} from './src/utils/navigationConstants';
 import {restore as restoreApiServer} from './src/services/apiServer';
+import {restore as restoreKeepAlive} from './src/services/keepAlive';
 
 import {
   SidebarContent,
@@ -125,6 +126,11 @@ const App = observer(() => {
 
   // Bring the LAN API server back up if it was left enabled. Harmless when no
   // model is loaded: requests answer 503 until one is.
+  React.useEffect(() => {
+    // Re-arm the screen-off service if the user left it on.
+    restoreKeepAlive().catch(() => {});
+  }, []);
+
   React.useEffect(() => {
     restoreApiServer().catch(() => {
       // restore() already swallows; catch keeps the promise chain explicit.

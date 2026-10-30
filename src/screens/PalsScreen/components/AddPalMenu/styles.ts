@@ -4,7 +4,7 @@ import {Theme} from '../../../../utils/types';
 export const createStyles = (theme: Theme) =>
   StyleSheet.create({
     addButton: {
-      flex: 1,
+      minWidth: 72,
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 8,

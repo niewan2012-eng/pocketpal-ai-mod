@@ -14,6 +14,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Screen-off survival: PARTIAL_WAKE_LOCK for the CPU, and the Wi-Fi lock
+         keeps the radio out of power save so LAN API connections survive. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
@@ -57,6 +63,11 @@
             <data android:scheme="pocketpal" android:host="hub" />
         </intent-filter>
       </activity>
+
+        <service
+            android:name="com.pocketpal.KeepAliveService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
 
         <service
             android:name="com.pocketpal.download.DownloadJobService"

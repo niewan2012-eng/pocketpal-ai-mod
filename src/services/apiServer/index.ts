@@ -26,6 +26,7 @@ import NativeApiServer, {
 } from '../../specs/NativeApiServer';
 
 import {modelStore} from '../../store';
+import * as keepAlive from '../keepAlive';
 import {WEB_PAGE_HTML} from './webPage';
 
 export const API_SERVER_PORT = 8080;
@@ -90,6 +91,8 @@ export async function start(port = API_SERVER_PORT): Promise<ApiServerInfo> {
   // background are mutually exclusive: a request arriving while released can
   // only answer 503. Same mechanism the camera and image picker use.
   modelStore.disableAutoRelease('api-server');
+  // A request arriving after the screen turned off must still be answered.
+  keepAlive.enable('api-server').catch(() => {});
   AsyncStorage.setItem(ENABLED_PREF_KEY, 'true').catch(() => {});
   started = info.running;
   lastInfo = info;
@@ -100,6 +103,7 @@ export async function stop(): Promise<void> {
   detach();
   await NativeApiServer?.stop();
   modelStore.enableAutoRelease('api-server');
+  keepAlive.disable('api-server').catch(() => {});
   AsyncStorage.setItem(ENABLED_PREF_KEY, 'false').catch(() => {});
   started = false;
   lastInfo = {...lastInfo, running: false};

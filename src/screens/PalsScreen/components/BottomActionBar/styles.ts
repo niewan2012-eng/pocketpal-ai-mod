@@ -14,12 +14,15 @@ export const createStyles = (theme: Theme, insets: EdgeInsets) =>
       paddingHorizontal: 8,
       paddingVertical: 8,
       paddingBottom: Math.max(insets.bottom, 12),
-      justifyContent: 'space-around',
+      // Left-aligned group: with the account button gone, space-around pushed
+      // Add Pal to the far right edge.
+      justifyContent: 'flex-start',
+      gap: 12,
       alignItems: 'center',
       minHeight: 70,
     },
     actionButton: {
-      flex: 1,
+      minWidth: 72,
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 8,

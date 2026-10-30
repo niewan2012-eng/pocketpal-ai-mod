@@ -1,4 +1,10 @@
-import React, {useState, useEffect, useRef, useContext} from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Platform,
@@ -63,6 +69,7 @@ import {
   searchProviderStore,
   voiceModeStore,
 } from '../../store';
+import * as keepAlive from '../../services/keepAlive';
 import type {SearchProviderId} from '../../services/search/types';
 import {
   ASR_DISK_HEADROOM_FACTOR,
@@ -123,11 +130,55 @@ export const SettingsScreen: React.FC = observer(() => {
   const [currentBackend, setCurrentBackend] = useState<
     'metal' | 'opencl' | 'hexagon' | 'cpu' | 'blas'
   >(Platform.OS === 'ios' ? 'metal' : 'cpu');
+  // Screen-off keep-alive: the native side owns the service, this is the switch.
+  const [keepAliveOn, setKeepAliveOn] = useState(keepAlive.isRunning());
+  const [ignoringBatteryOptimizations, setIgnoringBatteryOptimizations] =
+    useState(false);
   const debouncedUpdateStore = useRef(
     debounce((value: number) => {
       modelStore.setNContext(value);
     }, 500),
   ).current;
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !keepAlive.isSupported()) {
+      return;
+    }
+    keepAlive
+      .isUserEnabled()
+      .then(enabled => setKeepAliveOn(enabled))
+      .catch(() => {});
+    keepAlive
+      .isIgnoringBatteryOptimizations()
+      .then(setIgnoringBatteryOptimizations)
+      .catch(() => {});
+  }, []);
+
+  const handleKeepAliveToggle = useCallback((enabled: boolean) => {
+    setKeepAliveOn(enabled);
+    const action = enabled
+      ? keepAlive.enable('user')
+      : keepAlive.disable('user');
+    action
+      .catch(err => console.warn('[settings] keep-alive toggle failed:', err))
+      .finally(() => setKeepAliveOn(keepAlive.isRunning()));
+  }, []);
+
+  const handleRequestBatteryExemption = useCallback(() => {
+    keepAlive
+      .requestIgnoreBatteryOptimizations()
+      .then(() =>
+        // The dialog is asynchronous and out of our control; re-ask when the
+        // screen comes back rather than guessing.
+        setTimeout(() => {
+          keepAlive
+            .isIgnoringBatteryOptimizations()
+            .then(setIgnoringBatteryOptimizations)
+            .catch(() => {});
+        }, 1500),
+      )
+      .catch(err => console.warn('[settings] battery dialog failed:', err));
+  }, []);
 
   useEffect(() => {
     setContextSize(modelStore.contextInitParams.n_ctx.toString());
@@ -908,6 +959,55 @@ export const SettingsScreen: React.FC = observer(() => {
               </List.Accordion>
             </Card.Content>
           </Card>
+
+          {/* Screen-off keep-alive (fork): foreground service + wake/Wi-Fi locks */}
+          {Platform.OS === 'android' && keepAlive.isSupported() && (
+            <Card elevation={0} style={styles.card}>
+              <Card.Title title={l10n.keepAlive.title} />
+              <Card.Content>
+                <View style={styles.settingItemContainer}>
+                  <View style={styles.switchContainer}>
+                    <View style={styles.textContainer}>
+                      <Text variant="titleMedium" style={styles.textLabel}>
+                        {l10n.keepAlive.screenOffTitle}
+                      </Text>
+                      <Text variant="labelSmall" style={styles.textDescription}>
+                        {l10n.keepAlive.screenOffDescription}
+                      </Text>
+                    </View>
+                    <Switch
+                      testID="keep-alive-switch"
+                      value={keepAliveOn}
+                      onValueChange={handleKeepAliveToggle}
+                    />
+                  </View>
+                </View>
+                <Divider />
+                <View style={styles.settingItemContainer}>
+                  <View style={styles.switchContainer}>
+                    <View style={styles.textContainer}>
+                      <Text variant="titleMedium" style={styles.textLabel}>
+                        {l10n.keepAlive.batteryTitle}
+                      </Text>
+                      <Text variant="labelSmall" style={styles.textDescription}>
+                        {ignoringBatteryOptimizations
+                          ? l10n.keepAlive.batteryAllowed
+                          : l10n.keepAlive.batteryBlocked}
+                      </Text>
+                    </View>
+                    {ignoringBatteryOptimizations ? null : (
+                      <Button
+                        testID="keep-alive-battery-button"
+                        mode="text"
+                        onPress={handleRequestBatteryExemption}>
+                        {l10n.keepAlive.batteryButton}
+                      </Button>
+                    )}
+                  </View>
+                </View>
+              </Card.Content>
+            </Card>
+          )}
 
           {/* Memory Settings */}
           <Card elevation={0} style={styles.card}>

@@ -41,8 +41,9 @@ const EXPECTED_SECTIONS = [
   'voiceInput',
   'voiceMode',
   'plus',
-  // Fork-only: the LAN API server screen.
+  // Fork-only: the LAN API server screen and the screen-off keep-alive.
   'apiServer',
+  'keepAlive',
 ];
 
 const ALL_LANGUAGES: AvailableLanguage[] = [

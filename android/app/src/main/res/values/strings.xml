@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">PocketPal Mod</string>
     <string name="download_channel_name">Model downloads</string>
+    <string name="keepalive_channel_name">后台运行</string>
+    <string name="keepalive_title">PocketPal Mod 正在后台运行</string>
+    <string name="keepalive_channel_description">熄屏与后台运行时的唤醒状态</string>
+    <string name="keepalive_text">熄屏后仍保持唤醒来运行模型与 API 服务</string>
 </resources>

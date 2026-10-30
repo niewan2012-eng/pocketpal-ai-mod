@@ -1833,5 +1833,14 @@
     "model": "Model",
     "noModel": "No model loaded — requests will answer 503",
     "copied": "Address copied"
+  },
+  "keepAlive": {
+    "title": "Keep running",
+    "screenOffTitle": "Keep running with the screen off",
+    "screenOffDescription": "Holds a partial wake lock, a high-performance Wi-Fi lock and a foreground service so inference and the API server keep working when the screen turns off or the app is in the background. Shows a notification while active.",
+    "batteryTitle": "Ignore battery optimizations",
+    "batteryAllowed": "Doze will not freeze the app.",
+    "batteryBlocked": "Doze may still freeze the app after the screen is off.",
+    "batteryButton": "Allow"
   }
 }
