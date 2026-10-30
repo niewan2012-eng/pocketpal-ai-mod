@@ -17,6 +17,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as RNFS from '@dr.pogodin/react-native-fs';
 import {DeviceEventEmitter} from 'react-native';
 
 import NativeApiServer, {
@@ -35,7 +36,16 @@ export const API_SERVER_PORT = 8080;
  */
 const ENABLED_PREF_KEY = 'apiServer.enabled';
 
-type ChatMessage = {role: string; content: string};
+/**
+ * OpenAI-style message. `content` is either plain text or a list of parts, which
+ * is how images reach the model: llama.rn's getFormattedChat() turns each
+ * `image_url` part into a media marker plus an entry in `media_paths`.
+ */
+type ContentPart =
+  | {type: 'text'; text: string}
+  | {type: 'image_url'; image_url: {url: string}};
+
+type ChatMessage = {role: string; content: string | ContentPart[]};
 
 interface ChatRequestBody {
   model?: string;
@@ -212,12 +222,59 @@ function errorBody(message: string) {
 }
 
 /** Messages from the request, or a single user turn from `prompt`. */
+/** Data URLs go to disk: llama.rn reads images from a path, not from base64. */
+async function materializeDataUrls(
+  messages: ChatMessage[],
+): Promise<{messages: ChatMessage[]; temporaryFiles: string[]}> {
+  const temporaryFiles: string[] = [];
+  const out: ChatMessage[] = [];
+
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) {
+      out.push(message);
+      continue;
+    }
+    const parts: ContentPart[] = [];
+    for (const part of message.content) {
+      if (part.type !== 'image_url') {
+        parts.push(part);
+        continue;
+      }
+      const url = part.image_url?.url ?? '';
+      const match = /^data:(image\/[a-zA-Z+.-]+);base64,(.*)$/s.exec(url);
+      if (!match) {
+        // Already a path or an http URL: leave it to llama.rn.
+        parts.push(part);
+        continue;
+      }
+      const extension = match[1]!.split('/')[1]!.replace('jpeg', 'jpg');
+      const path = `${RNFS.TemporaryDirectoryPath}/pocketpal-api-${Date.now()}-${temporaryFiles.length}.${extension}`;
+      await RNFS.writeFile(path, match[2]!, 'base64');
+      temporaryFiles.push(path);
+      parts.push({type: 'image_url', image_url: {url: path}});
+    }
+    out.push({...message, content: parts});
+  }
+
+  return {messages: out, temporaryFiles};
+}
+
+/** True when any message carries an image part. */
+function hasImages(messages: ChatMessage[]): boolean {
+  return messages.some(
+    message =>
+      Array.isArray(message.content) &&
+      message.content.some(part => part.type === 'image_url'),
+  );
+}
+
 function toMessages(body: ChatRequestBody): ChatMessage[] {
   if (Array.isArray(body.messages) && body.messages.length > 0) {
     return body.messages.map(m => ({
       role: m.role,
-      content:
-        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      content: Array.isArray(m.content)
+        ? (m.content as ContentPart[])
+        : m.content,
     }));
   }
   if (typeof body.prompt === 'string') {
@@ -279,6 +336,18 @@ async function handleCompletion(
   }
 
   const myTurn = ++requestSeq;
+  if (hasImages(messages) && !modelStore.isMultimodalActive) {
+    NativeApiServer?.respond(
+      id,
+      400,
+      'application/json',
+      errorBody(
+        'this model has no vision projector loaded — pick a vision model (and its mmproj) in the app, or send text only',
+      ),
+    );
+    return;
+  }
+
   if (generating) {
     // One llama context, one generation at a time. Rather than answering 429 —
     // which locks the server behind a generation nobody is reading any more
@@ -293,6 +362,8 @@ async function handleCompletion(
   generating = true;
   /** Set once the SSE headers are written; the catch block needs it. */
   let streamOpened = false;
+  /** Uploaded images, removed once the answer is done with them. */
+  const temporaryFilesForRequest: string[] = [];
   const created = Math.floor(Date.now() / 1000);
   const completionId = `chatcmpl-${created}-${id}`;
   const model = activeModelId() ?? body.model ?? 'pocketpal';
@@ -300,15 +371,22 @@ async function handleCompletion(
   try {
     // The model's own chat template, exactly like the in-app chat path.
     const enableThinking = body.enable_thinking === true;
-    const formatted = await context.getFormattedChat(messages, null, {
+    let formatted: Awaited<ReturnType<typeof context.getFormattedChat>>;
+    const {messages: preparedMessages, temporaryFiles} =
+      await materializeDataUrls(messages);
+    temporaryFilesForRequest.push(...temporaryFiles);
+    formatted = await context.getFormattedChat(preparedMessages, null, {
       jinja: true,
       enable_thinking: enableThinking,
       reasoning_format: enableThinking ? 'auto' : 'none',
     });
     const prompt = typeof formatted === 'string' ? formatted : formatted.prompt;
 
+    const mediaPaths =
+      typeof formatted === 'string' ? undefined : formatted.media_paths;
     const params = {
       prompt,
+      ...(mediaPaths && mediaPaths.length > 0 ? {media_paths: mediaPaths} : {}),
       // Reasoning models spend their budget on thinking first; 512 was not
       // enough for one answer on Qwen3.5.
       n_predict: body.max_tokens ?? 1024,
@@ -465,6 +543,9 @@ async function handleCompletion(
       NativeApiServer?.respond(id, 500, 'application/json', errorBody(message));
     }
   } finally {
+    for (const file of temporaryFilesForRequest) {
+      RNFS.unlink(file).catch(() => {});
+    }
     // Only the newest request owns the flag; a superseded one unwinds later.
     if (requestSeq === myTurn) {
       generating = false;

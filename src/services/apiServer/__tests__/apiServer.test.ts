@@ -34,6 +34,13 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
+// Uploaded images are written to disk before llama.rn can read them.
+jest.mock('@dr.pogodin/react-native-fs', () => ({
+  TemporaryDirectoryPath: '/tmp',
+  writeFile: jest.fn().mockResolvedValue(undefined),
+  unlink: jest.fn().mockResolvedValue(undefined),
+}));
+
 const mockCompletion = jest.fn();
 
 jest.mock('../../../store', () => ({
@@ -44,6 +51,7 @@ jest.mock('../../../store', () => ({
     // The server pins the model while it serves; the store call is what does it.
     disableAutoRelease: jest.fn(),
     enableAutoRelease: jest.fn(),
+    isMultimodalActive: false,
   },
 }));
 
@@ -154,6 +162,91 @@ describe('apiServer', () => {
       'application/json',
       expect.stringContaining('unknown route'),
     );
+  });
+
+  it('refuses images when no vision projector is loaded', async () => {
+    modelStore.context = {getFormattedChat: jest.fn()};
+    modelStore.engine = {completion: mockCompletion};
+    modelStore.isMultimodalActive = false;
+
+    request(
+      'POST',
+      '/v1/chat/completions',
+      JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {type: 'text', text: '这是什么？'},
+              {
+                type: 'image_url',
+                image_url: {url: 'data:image/png;base64,AAAA'},
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    await flush();
+
+    expect(mockRespond).toHaveBeenCalledWith(
+      expect.any(Number),
+      400,
+      'application/json',
+      expect.stringContaining('no vision projector'),
+    );
+    modelStore.context = undefined;
+    modelStore.engine = undefined;
+  });
+
+  it('writes base64 images to disk and forwards them as media_paths', async () => {
+    const fs = require('@dr.pogodin/react-native-fs');
+    modelStore.isMultimodalActive = true;
+    const getFormattedChat = jest.fn().mockImplementation((msgs: unknown) => {
+      // llama.rn replaces the image part with a marker and reports the path.
+      const parts = JSON.stringify(msgs);
+      const path = /"url":"([^"]+)"/.exec(parts)?.[1] ?? '';
+      return Promise.resolve({prompt: '<media>', media_paths: [path]});
+    });
+    modelStore.context = {getFormattedChat};
+    mockCompletion.mockResolvedValue({content: '一只猫', text: '一只猫'});
+    modelStore.engine = {completion: mockCompletion};
+
+    request(
+      'POST',
+      '/v1/chat/completions',
+      JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {type: 'text', text: '这是什么？'},
+              {
+                type: 'image_url',
+                image_url: {url: 'data:image/png;base64,AAAA'},
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    await flush();
+
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining('/tmp/pocketpal-api-'),
+      'AAAA',
+      'base64',
+    );
+    expect(mockCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        media_paths: [expect.stringContaining('/tmp/pocketpal-api-')],
+      }),
+    );
+    expect(fs.unlink).toHaveBeenCalled();
+
+    modelStore.isMultimodalActive = false;
+    modelStore.context = undefined;
+    modelStore.engine = undefined;
   });
 
   it('streams SSE chunks for stream:true and terminates with [DONE]', async () => {
