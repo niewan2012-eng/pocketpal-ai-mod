@@ -29,6 +29,7 @@ import {Theme} from './src/utils/types';
 import {l10n, initLocale} from './src/locales';
 import {L10nContext} from './src/utils';
 import {ROUTES} from './src/utils/navigationConstants';
+import {restore as restoreApiServer} from './src/services/apiServer';
 
 import {
   SidebarContent,
@@ -119,6 +120,14 @@ const App = observer(() => {
     });
     asrStore.init().catch(() => {
       // init() swallows its own errors; catch to satisfy no-floating-promises.
+    });
+  }, []);
+
+  // Bring the LAN API server back up if it was left enabled. Harmless when no
+  // model is loaded: requests answer 503 until one is.
+  React.useEffect(() => {
+    restoreApiServer().catch(() => {
+      // restore() already swallows; catch keeps the promise chain explicit.
     });
   }, []);
 

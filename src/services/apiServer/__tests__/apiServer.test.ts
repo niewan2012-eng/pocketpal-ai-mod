@@ -26,6 +26,14 @@ jest.mock('../../../specs/NativeApiServer', () => ({
   },
 }));
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn().mockResolvedValue(null),
+    setItem: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 const mockCompletion = jest.fn();
 
 jest.mock('../../../store', () => ({
@@ -33,6 +41,9 @@ jest.mock('../../../store', () => ({
     activeModel: undefined as {name: string} | undefined,
     context: undefined as unknown,
     engine: undefined as unknown,
+    // The server pins the model while it serves; the store call is what does it.
+    disableAutoRelease: jest.fn(),
+    enableAutoRelease: jest.fn(),
   },
 }));
 

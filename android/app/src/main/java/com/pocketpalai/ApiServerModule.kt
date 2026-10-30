@@ -1,5 +1,6 @@
 package com.pocketpal
 
+import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -7,6 +8,7 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.module.annotations.ReactModule
 import com.pocketpal.specs.NativeApiServerSpec
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Inet4Address
@@ -43,8 +45,13 @@ class ApiServerModule(reactContext: ReactApplicationContext) :
     const val NAME = "ApiServerModule"
     private const val EVENT_REQUEST = "ApiServerRequest"
     private const val MAX_BODY_BYTES = 8 * 1024 * 1024
+    private const val MAX_HEAD_BYTES = 16 * 1024
+    private val CR = 13.toByte()
+    private val LF = 10.toByte()
     private const val SOCKET_TIMEOUT_MS = 30_000
   }
+
+  private val TAG = "ApiServer"
 
   private var serverSocket: ServerSocket? = null
   private val running = AtomicBoolean(false)
@@ -94,7 +101,10 @@ class ApiServerModule(reactContext: ReactApplicationContext) :
 
   /** Whole response for `id`. Status line and headers are written here. */
   override fun respond(id: Double, status: Double, contentType: String, body: String) {
-    val socket = pending.remove(id.toInt()) ?: return
+    val socket = pending.remove(id.toInt()) ?: run {
+      Log.w(TAG, "respond for unknown request #" + id.toInt())
+      return
+    }
     try {
       val bytes = body.toByteArray(Charsets.UTF_8)
       val out = socket.getOutputStream()
@@ -163,6 +173,7 @@ class ApiServerModule(reactContext: ReactApplicationContext) :
       } catch (_: Exception) {
         break
       }
+      Log.d(TAG, "accepted " + client.inetAddress.hostAddress)
       pool.execute { handleConnection(client) }
     }
   }
@@ -197,37 +208,63 @@ class ApiServerModule(reactContext: ReactApplicationContext) :
 
       val id = requestIds.incrementAndGet()
       pending[id] = client
+      Log.d(TAG, "request #" + id + " " + method + " " + path + " (" + body.length + "B)")
       val payload: WritableMap = Arguments.createMap().apply {
         putInt("id", id)
         putString("method", method)
         putString("path", path)
         putString("body", body)
       }
-      reactApplicationContext.emitDeviceEvent(EVENT_REQUEST, payload)
+      // Device events have to be emitted on the JS queue thread; a socket thread
+      // reaching into the JS module directly is silently dropped.
+      reactApplicationContext.runOnJSQueueThread {
+        try {
+          reactApplicationContext.emitDeviceEvent(EVENT_REQUEST, payload)
+        } catch (e: Exception) {
+          Log.w(TAG, "emit failed", e)
+        }
+      }
 
       // If JavaScript never answers (engine not loaded, handler threw), do not
       // leak the socket: the timeout in `respond` path covers it because the
       // socket is closed here only by respond/endStream.
     } catch (e: Exception) {
+      Log.w(TAG, "connection failed: " + e.message)
       closeQuietly(client)
     }
   }
 
+  /**
+   * Read until the blank line that ends the header block.
+   *
+   * Byte-at-a-time with a suffix check: an earlier hand-rolled CRLF state
+   * machine had an off-by-one that never matched "
+
+", so every
+   * connection hung until the socket timeout.
+   */
   private fun readHead(input: InputStream): String? {
-    val buffer = StringBuilder()
-    var matched = 0
+    val buffer = ByteArrayOutputStream()
     while (true) {
       val b = input.read()
-      if (b == -1) return null
-      buffer.append(b.toChar())
-      matched = when {
-        b == '\r'.code && (matched == 0 || matched == 2) -> if (matched == 2) 3 else 1
-        b == '\n'.code && matched == 1 -> 2
-        b == '\r'.code && matched == 3 -> 4
-        b == '\n'.code && matched == 4 -> return buffer.toString()
-        else -> 0
+      if (b == -1) {
+        return if (buffer.size() == 0) {
+          null
+        } else {
+          buffer.toString("ISO-8859-1")
+        }
       }
-      if (buffer.length > 16 * 1024) return null
+      buffer.write(b)
+      val n = buffer.size()
+      if (n >= 4) {
+        val a = buffer.toByteArray()
+        if (a[n - 4] == CR && a[n - 3] == LF && a[n - 2] == CR && a[n - 1] == LF) {
+          return String(a, 0, n, Charsets.ISO_8859_1)
+        }
+      }
+      if (n > MAX_HEAD_BYTES) {
+        return null
+      }
     }
   }
 

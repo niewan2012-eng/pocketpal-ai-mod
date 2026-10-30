@@ -16,6 +16,7 @@
  *   OPTIONS *                   CORS preflight
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {DeviceEventEmitter} from 'react-native';
 
 import NativeApiServer, {
@@ -27,6 +28,12 @@ import {modelStore} from '../../store';
 import {WEB_PAGE_HTML} from './webPage';
 
 export const API_SERVER_PORT = 8080;
+
+/**
+ * The preference outlives the process: starting a server to serve the LAN is a
+ * deliberate setup step, not something to re-enter after every app restart.
+ */
+const ENABLED_PREF_KEY = 'apiServer.enabled';
 
 type ChatMessage = {role: string; content: string};
 
@@ -51,6 +58,8 @@ const NL = String.fromCharCode(10);
 let started = false;
 let lastInfo: ApiServerInfo = {running: false, port: 0, urls: []};
 let generating = false;
+/** Identifies the request that owns `generating`, so a superseded one cannot clear it. */
+let requestSeq = 0;
 
 export function getState(): ApiServerInfo {
   return lastInfo;
@@ -67,6 +76,11 @@ export async function start(port = API_SERVER_PORT): Promise<ApiServerInfo> {
   }
   const info = await NativeApiServer.start(port);
   attach();
+  // Serving over the network and releasing the model when the app goes to the
+  // background are mutually exclusive: a request arriving while released can
+  // only answer 503. Same mechanism the camera and image picker use.
+  modelStore.disableAutoRelease('api-server');
+  AsyncStorage.setItem(ENABLED_PREF_KEY, 'true').catch(() => {});
   started = info.running;
   lastInfo = info;
   return info;
@@ -75,6 +89,8 @@ export async function start(port = API_SERVER_PORT): Promise<ApiServerInfo> {
 export async function stop(): Promise<void> {
   detach();
   await NativeApiServer?.stop();
+  modelStore.enableAutoRelease('api-server');
+  AsyncStorage.setItem(ENABLED_PREF_KEY, 'false').catch(() => {});
   started = false;
   lastInfo = {...lastInfo, running: false};
 }
@@ -92,9 +108,11 @@ function attach() {
   if (subscription) {
     return;
   }
+  console.log('[apiServer] listening for requests');
   subscription = DeviceEventEmitter.addListener(
     'ApiServerRequest',
     (event: ApiServerRequestEvent) => {
+      console.log(`[apiServer] ${event.method} ${event.path}`);
       handleRequest(event).catch(err => {
         console.warn('[apiServer] request failed:', err);
       });
@@ -251,19 +269,25 @@ async function handleCompletion(
       id,
       503,
       'application/json',
-      errorBody('no model loaded in the app'),
+      errorBody(
+        modelStore.activeModel
+          ? 'the model is loaded but its context was released — bring the app to the foreground and send one message, then retry'
+          : 'no model loaded in the app',
+      ),
     );
     return;
   }
 
+  const myTurn = ++requestSeq;
   if (generating) {
-    NativeApiServer?.respond(
-      id,
-      429,
-      'application/json',
-      errorBody('another request is being generated'),
-    );
-    return;
+    // One llama context, one generation at a time. Rather than answering 429 —
+    // which locks the server behind a generation nobody is reading any more
+    // (a reloaded page, a closed tab) — let the newest request win.
+    try {
+      await engine.stopCompletion();
+    } catch (err) {
+      console.warn('[apiServer] stopCompletion failed:', err);
+    }
   }
 
   generating = true;
@@ -316,12 +340,24 @@ async function handleCompletion(
         id,
         chunkOf({role: 'assistant', content: ''}),
       );
+      // `data.content` is the ACCUMULATED content so far, not a delta — sending
+      // it as one repeats everything on every token. Diff it, and fall back to
+      // the raw token when the parser had nothing to say yet.
       let text = '';
+      let sentContent = '';
       const result = await engine.completion(params, data => {
-        const piece = data.content ?? data.token ?? '';
-        if (piece) {
-          text += piece;
-          NativeApiServer?.writeStreamChunk(id, chunkOf({content: piece}));
+        let delta = '';
+        if (typeof data.content === 'string' && data.content.length > 0) {
+          delta = data.content.startsWith(sentContent)
+            ? data.content.slice(sentContent.length)
+            : data.content;
+          sentContent = data.content;
+        } else if (typeof data.token === 'string') {
+          delta = data.token;
+        }
+        if (delta) {
+          text += delta;
+          NativeApiServer?.writeStreamChunk(id, chunkOf({content: delta}));
         }
       });
       if (!text && result.text) {
@@ -334,6 +370,15 @@ async function handleCompletion(
     }
 
     const result = await engine.completion(params);
+    if (requestSeq !== myTurn) {
+      NativeApiServer?.respond(
+        id,
+        409,
+        'application/json',
+        errorBody('superseded by a newer request'),
+      );
+      return;
+    }
     const content = result.content ?? result.text ?? '';
     const payload =
       route === '/v1/completions'
@@ -377,6 +422,16 @@ async function handleCompletion(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (requestSeq !== myTurn) {
+      // The only reason a superseded request throws is our own stopCompletion.
+      NativeApiServer?.respond(
+        id,
+        409,
+        'application/json',
+        errorBody('superseded by a newer request'),
+      );
+      return;
+    }
     // Once the SSE headers are out the status line is already sent: report the
     // failure as a final event and close, instead of pretending it was a 500.
     if (streamOpened) {
@@ -393,7 +448,25 @@ async function handleCompletion(
       NativeApiServer?.respond(id, 500, 'application/json', errorBody(message));
     }
   } finally {
-    generating = false;
+    // Only the newest request owns the flag; a superseded one unwinds later.
+    if (requestSeq === myTurn) {
+      generating = false;
+    }
+  }
+}
+
+/**
+ * Start the server again if it was running before the app was killed. Called
+ * once at launch; failures are not fatal (the screen shows the error).
+ */
+export async function restore(): Promise<void> {
+  try {
+    const enabled = await AsyncStorage.getItem(ENABLED_PREF_KEY);
+    if (enabled === 'true' && !started) {
+      await start(API_SERVER_PORT);
+    }
+  } catch (err) {
+    console.warn('[apiServer] restore failed:', err);
   }
 }
 
