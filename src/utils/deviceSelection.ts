@@ -173,7 +173,10 @@ export async function getDeviceOptions(): Promise<DeviceOption[]> {
       description: 'Qualcomm NPU (Experimental, fastest but may be unstable)',
       devices: [hexagonDevice.deviceName],
       n_gpu_layers: 99,
-      default_flash_attn_type: 'off',
+      // Measured on SM8850P (Qwen3.5-4B): FA off/F16 KV gave pp 867.7, tg 17.90;
+      // FA on + q8_0 KV gave pp 1085.0, tg 19.42. FA is therefore the default
+      // here, with 'off' still selectable per model.
+      default_flash_attn_type: 'on',
       valid_flash_attn_types: ['off', 'on'],
       tag: 'Experimental',
       experimental: true,
