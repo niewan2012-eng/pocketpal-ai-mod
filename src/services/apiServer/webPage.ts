@@ -42,6 +42,7 @@ export const WEB_PAGE_HTML = `<!doctype html>
   <strong>PocketPal Mod</strong>
   <span id="model">加载模型信息中…</span>
   <label><input type="checkbox" id="stream" checked /> 流式</label>
+  <label><input type="checkbox" id="think" /> 思考</label>
 </header>
 <main>
   <div id="log"></div>
@@ -57,6 +58,7 @@ const input = document.getElementById('input');
 const send = document.getElementById('send');
 const modelLabel = document.getElementById('model');
 const streamBox = document.getElementById('stream');
+const thinkBox = document.getElementById('think');
 let history = [];
 
 function add(role, text) {
@@ -87,6 +89,9 @@ async function sendMessage(text) {
         model: modelLabel.textContent.replace('模型: ', ''),
         messages: history,
         stream: streamBox.checked,
+        // Off by default: a reasoning model spends its output budget thinking
+        // first, and the answer is what a chat page is for.
+        enable_thinking: thinkBox.checked,
       }),
     });
     if (!res.ok) {

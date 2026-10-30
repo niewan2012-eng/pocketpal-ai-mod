@@ -299,14 +299,20 @@ async function handleCompletion(
 
   try {
     // The model's own chat template, exactly like the in-app chat path.
+    const enableThinking = body.enable_thinking === true;
     const formatted = await context.getFormattedChat(messages, null, {
       jinja: true,
+      enable_thinking: enableThinking,
+      reasoning_format: enableThinking ? 'auto' : 'none',
     });
     const prompt = typeof formatted === 'string' ? formatted : formatted.prompt;
 
     const params = {
       prompt,
-      n_predict: body.max_tokens ?? 512,
+      // Reasoning models spend their budget on thinking first; 512 was not
+      // enough for one answer on Qwen3.5.
+      n_predict: body.max_tokens ?? 1024,
+      enable_thinking: enableThinking,
       temperature: body.temperature ?? 0.8,
       top_p: body.top_p ?? 0.95,
       stop:
@@ -363,7 +369,10 @@ async function handleCompletion(
       if (!text && result.text) {
         NativeApiServer?.writeStreamChunk(id, chunkOf({content: result.text}));
       }
-      NativeApiServer?.writeStreamChunk(id, chunkOf({}, 'stop'));
+      NativeApiServer?.writeStreamChunk(
+        id,
+        chunkOf({}, result.stopped_limit ? 'length' : 'stop'),
+      );
       NativeApiServer?.writeStreamChunk(id, 'data: [DONE]\n\n');
       NativeApiServer?.endStream(id);
       return;
@@ -380,6 +389,10 @@ async function handleCompletion(
       return;
     }
     const content = result.content ?? result.text ?? '';
+    // `stop` is what clients branch on: telling them a truncated answer finished
+    // is how "the model stopped mid-sentence" reports are born.
+    const finishReason = result.stopped_limit ? 'length' : 'stop';
+    const reasoning = result.reasoning_content ?? undefined;
     const payload =
       route === '/v1/completions'
         ? {
@@ -387,7 +400,7 @@ async function handleCompletion(
             object: 'text_completion',
             created,
             model,
-            choices: [{index: 0, text: content, finish_reason: 'stop'}],
+            choices: [{index: 0, text: content, finish_reason: finishReason}],
             usage: {
               prompt_tokens: result.tokens_evaluated ?? 0,
               completion_tokens: result.tokens_predicted ?? 0,
@@ -403,8 +416,12 @@ async function handleCompletion(
             choices: [
               {
                 index: 0,
-                message: {role: 'assistant', content},
-                finish_reason: 'stop',
+                message: {
+                  role: 'assistant',
+                  content,
+                  ...(reasoning ? {reasoning_content: reasoning} : {}),
+                },
+                finish_reason: finishReason,
               },
             ],
             usage: {
